@@ -77,6 +77,7 @@
       <button id="cMine" class="wp">LAY MINE<small>L</small></button>
       <button id="cJump">HYPERJUMP<small>J</small></button>
       <button id="cSD" class="dg">SELF DESTRUCT<small>K</small></button>
+      <button id="cDock" class="go">DOCK<small>D</small></button>
       <button id="cScan">SCANNER<small>R</small></button>
       <button id="cPause">PAUSE<small>SPACE</small></button>
       <button id="cHelp">HELP<small>H</small></button>
@@ -124,7 +125,16 @@ const ANOM = {
   radiat:  { name: 'RADIATION CLOUD',  col: '#8aff5a' },
   worm:    { name: 'WORMHOLE',         col: '#c08bff' },
   depot:   { name: 'SUPPLY DEPOT',     col: '#ffd54d' },
+  hole:      { name: 'BLACK HOLE',       col: '#ff8a3d', idR: 5, area: 1 },
+  nebula:    { name: 'NEBULA',           col: '#b97bff', idR: 6, area: 1 },
+  asteroid:  { name: 'ASTEROID FIELD',   col: '#c2ad8c', idR: 5, area: 1 },
+  derelict:  { name: 'DERELICT SHIP',    col: '#9fb2c8' },
+  timewarp:  { name: 'TIME DISTORTION',  col: '#4fd8ff', idR: 6, area: 1 },
+  minefield: { name: 'MINEFIELD',        col: '#ff6a6a', area: 1 },
+  nest:      { name: 'ALIEN NEST',       col: '#7dff7d' },
 };
+const STATION_SHIELD = 400;   // 4x the hero's shield capacity
+const ANOM_KEYS = Object.keys(ANOM), anIdR = an => ANOM[an.type].idR || 3;
 
 // ================================================================ audio (synthesized)
 let ac = null, master = null, noiseBuf = null, soundOn = true, eng = null, lastPh = 0;
@@ -166,6 +176,7 @@ const sfx = {
   ping()    { arp([1200, 1600], .08, 'sine', .25, .15); },
   alert()   { arp([880, 620, 880, 620], .16, 'sawtooth', .16, .14); },
   supply()  { arp([523, 659, 784, 1047], .07, 'triangle', .3, .12); },
+  dockUp()  { arp([392, 494, 587, 784], .28, 'sine', .28, .35); },
   beep(f = 900) { tone({ f0: f, f1: f, dur: .09, vol: .22 }); },
   click()   { tone({ f0: 900, f1: 700, dur: .04, vol: .1 }); },
   win()     { arp([392, 523, 659, 784, 659, 784, 1047, 1319], .13, 'square', .2, .2); },
@@ -184,25 +195,47 @@ let U = null, H = null;
 const Q = (x, y) => U.Q[y][x], curQ = () => Q(H.qx, H.qy);
 function occupied(q, x, y) {
   return q.stars.some(s => s.x === x && s.y === y) || q.planets.some(p => p.x === x && p.y === y) || q.aliens.some(a => a.x === x && a.y === y) ||
+    q.stations.some(s => s.x === x && s.y === y) || q.mines.some(m => m.x === x && m.y === y) || (q.anom && q.anom.rocks && q.anom.rocks.some(r => r.x === x && r.y === y)) ||
     (q.anom && q.anom.x === x && q.anom.y === y) || (q === curQ() && H && H.x === x && H.y === y);
 }
-function freeCell(q) { for (let i = 0; i < 400; i++) { const x = ri(SN), y = ri(SN); if (!occupied(q, x, y)) return { x, y }; } return { x: 0, y: 0 }; }
-function newAlien(type, q) {
-  const p = freeCell(q), T = ATYPES[type];
+function freeCell(q, m = 0) { for (let i = 0; i < 400; i++) { const x = m + ri(SN - 2 * m), y = m + ri(SN - 2 * m); if (!occupied(q, x, y)) return { x, y }; } return { x: 0, y: 0 }; }
+function newAlien(type, q, pos) {
+  const p = pos || freeCell(q), T = ATYPES[type];
   const a = { id: U.nextId++, type, hp: T.hp, x: p.x, y: p.y, stepT: 1 + rnd(), pcd: 1 + rnd() * 2, tcd: 3 + rnd() * 4, mcd: 4 + rnd() * 5, charge: null,
     cloaked: !!T.cloak, cloakT: 3 + rnd() * 3, vis: T.cloak ? 0 : 1, flash: 0, dOff: [0, 0], dT: 0, ang: 0 };
   q.aliens.push(a);
 }
 function newGame() {
   U = { Q: [], t: 0, nextId: 1, kills: 0, aliensLeft: 0, grace: 0, over: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0 };
-  for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, dist: +$('dist').value };
+  for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], anom: null, visited: false, hue: ri(360) }; }
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, dist: +$('dist').value };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
     for (let i = 2 + ri(7); i > 0; i--) { const p = freeCell(q); q.planets.push({ x: p.x, y: p.y, hue: ri(360), ring: rnd() < .3 }); }
-    if (rnd() < .5) { const p = freeCell(q); q.anom = { x: p.x, y: p.y, type: Object.keys(ANOM)[ri(4)], known: false }; }
+    if (rnd() < .55) {
+      const type = ANOM_KEYS[ri(ANOM_KEYS.length)], p = freeCell(q, ANOM[type].area ? 4 : 0), an = { x: p.x, y: p.y, type, known: false };
+      if (type === 'nest') { an.hp = 250; an.spawnT = 12 + rnd() * 6; an.spawned = 0; an.flash = 0; }
+      if (type === 'timewarp') { an.mode = rnd() < .5 ? 'slow' : 'fast'; an.t = 5 + rnd() * 5; }
+      if (type === 'hole') an.t = 1.3;
+      if (type === 'asteroid') {
+        an.rocks = [];
+        for (let dx = -3; dx <= 3; dx++) for (let dy = -3; dy <= 3; dy++) {
+          const rx = p.x + dx, ry = p.y + dy; if (rx < 0 || ry < 0 || rx >= SN || ry >= SN) continue;
+          if (q.stars.some(s => s.x === rx && s.y === ry) || q.planets.some(pl => pl.x === rx && pl.y === ry)) continue;
+          if ((!dx && !dy) || (Math.hypot(dx, dy) <= 3.2 && rnd() < .45)) an.rocks.push({ x: rx, y: ry, seed: ri(1000) });
+        }
+      }
+      q.anom = an;
+      if (type === 'minefield') for (let i = 0; i < 10; i++) {   // hidden mines, only visible at close range
+        const mx = p.x + ri(7) - 3, my = p.y + ri(7) - 3;
+        if (mx >= 0 && my >= 0 && mx < SN && my < SN && !occupied(q, mx, my)) q.mines.push({ x: mx, y: my, owner: 'alien', arm: 0 });
+      }
+    }
   }
+  const nStations = 1 + ri(4);   // 1-4 space stations scattered through the galaxy
+  for (let i = 0; i < nStations; i++) { const q = Q(ri(GN), ri(GN)), p = freeCell(q); q.stations.push({ x: p.x, y: p.y, readyAt: 0, shield: STATION_SHIELD, regenT: 0, cd: 2, flash: 0, warned: false }); }
+  U.stationCount = nStations;
   const hp = freeCell(curQ()); H.x = hp.x; H.y = hp.y; curQ().visited = true;
   const total = 16 + ri(13), pool = ['scout', 'scout', 'scout', 'raider', 'raider', 'cruiser', 'cruiser', 'cruiser', 'stealth', 'stealth', 'battleship'];
   for (let i = 0; i < total; i++) {
@@ -221,6 +254,12 @@ function say(m, cls = '') {
 function blockerAt(q, x, y) {
   if (q === curQ() && H.x === x && H.y === y) return { t: 'hero' };
   const a = q.aliens.find(a => a.x === x && a.y === y); if (a) return { t: 'alien', o: a };
+  const an = q.anom;
+  if (an) {
+    if (an.rocks) { const rk = an.rocks.find(r => r.x === x && r.y === y); if (rk) return { t: 'rock', o: rk }; }
+    if (an.type === 'nest' && an.x === x && an.y === y) return { t: 'nest', o: an };
+  }
+  const st = q.stations.find(s => s.x === x && s.y === y); if (st) return { t: 'station', o: st };
   if (q.stars.some(s => s.x === x && s.y === y)) return { t: 'star' };
   if (q.planets.some(p => p.x === x && p.y === y)) return { t: 'planet' };
   return null;
@@ -256,6 +295,7 @@ const fx = (x, y, kind, dur = .6, size = 1, col) => U.fx.push({ x, y, kind, t: 0
 // ================================================================ damage / destruction
 function hitHero(d) {
   if (U.over) return;
+  if (H.docking) { hitStation(H.docking.s, d); return; }   // a docked ship is protected: the station's shields take the hit
   const s = H.shields;
   if (H.crippled > 0) H.hull -= d * 1.5;   // shields are offline while crippled: hits go straight to the hull, and hurt more
   else if (s >= d) H.shields -= d; else { H.hull -= d - s; H.shields = 0; }
@@ -278,6 +318,7 @@ function detonate(q, m) {
   const i = q.mines.indexOf(m); if (i < 0) return; q.mines.splice(i, 1);
   fx(m.x, m.y, 'big', 1, 1.6); sfx.big(); U.shake = .5;
   for (const a of q.aliens.slice()) if (cheb(a.x, a.y, m.x, m.y) <= 1) killAlien(a);
+  for (const s of q.stations.slice()) if (cheb(s.x, s.y, m.x, m.y) <= 1) hitStation(s, 150);
   if (q === curQ() && cheb(H.x, H.y, m.x, m.y) <= 1) { say('CAUGHT IN A MINE BLAST!', 'bad'); hitHero(70); }
   for (const o of q.mines.slice()) if (cheb(o.x, o.y, m.x, m.y) <= 1) detonate(q, o);
 }
@@ -298,6 +339,9 @@ function cmd(name) {
   if (U.paused) return;
   if (name === 'stop') return stopShip('ION DRIVE DISENGAGED.');
   if (name === 'sd') return selfDestruct();
+  if (name === 'dock') return dock();
+  if (H.docking && ['phaser', 'torp', 'mine'].includes(name)) return say('WEAPONS OFFLINE WHILE DOCKED - PRESS D TO UNDOCK.', 'warn');
+  if (H.docking && ['move', 'jump'].includes(name)) undock();
   if (H.crippled > 0 && ['move', 'phaser', 'torp', 'mine', 'jump'].includes(name)) return say('SYSTEMS OFFLINE - THE SHIP IS CRIPPLED!', 'bad');
   if (name === 'jump') { if (U.jm) { U.jm = null; return; } enterJump(); return; }
   U.jm = null;
@@ -339,6 +383,7 @@ function firePhaser(d) {
     if (r.hit.t === 'alien') damageAlien(r.hit.o, 25);
     else if (r.hit.t === 'mine') detonate(q, r.hit.o);
     else if (r.hit.t === 'hero') { say('YOUR OWN PHASER BEAM WAS SCATTERED BACK AT YOU!', 'bad'); hitHero(15); }
+    else if (r.hit.t === 'nest') damageNest(q, 25);
     else fx(r.ex, r.ey, 'spark', .3, .6);
   }
 }
@@ -379,7 +424,8 @@ function finishJump() {
     let land = null;
     for (const d of dirs) {
       const tx = gx + VEC[d][0] * j.n, ty = gy + VEC[d][1] * j.n; if (tx < 0 || ty < 0 || tx >= lim || ty >= lim) continue;
-      const q = Q(Math.floor(tx / SN), Math.floor(ty / SN)), sx = tx % SN, sy = ty % SN; if (blockerAt(q, sx, sy)) continue;
+      const q = Q(Math.floor(tx / SN), Math.floor(ty / SN)), sx = tx % SN, sy = ty % SN;
+      if (blockerAt(q, sx, sy) || q.mines.some(m => m.x === sx && m.y === sy) || (q.anom && q.anom.type === 'hole' && q.anom.x === sx && q.anom.y === sy)) continue;
       land = { qx: Math.floor(tx / SN), qy: Math.floor(ty / SN), sx, sy }; break;
     }
     if (!land) { H.energy = Math.min(MAXE, H.energy + j.cost); say('NO SAFE LANDING SECTOR FOUND. JUMP ABORTED, ENERGY REFUNDED.', 'bad'); return; }
@@ -426,6 +472,8 @@ function checkSector() {
     H.torps = Math.min(10, H.torps + 4); H.mines = Math.min(6, H.mines + 3); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
     q.anom = null; sfx.supply(); say('SUPPLY DEPOT: TORPEDOES, MINES, ENERGY, HULL AND SHIELDS RESTORED!', 'good');
   }
+  else if (an.type === 'hole') { H.hull = 0; fx(H.x, H.y, 'big', 1, 1.4); endGame(false, 'YOUR SHIP WAS CRUSHED BY THE BLACK HOLE.'); }
+  else if (an.type === 'derelict') { q.anom = null; salvage(q); }
 }
 function heroMoveStep() {
   const [dx, dy] = VEC[H.dir]; let nx = H.x + dx, ny = H.y + dy, nqx = H.qx, nqy = H.qy;
@@ -435,7 +483,8 @@ function heroMoveStep() {
   const tq = Q(nqx, nqy), b = blockerAt(tq, nx, ny);
   if (b && b.t !== 'hero') {
     if (b.t === 'star') { hitHero(10); stopShip('COLLISION WITH A STAR! DRIVE DISENGAGED.'); }
-    else if (b.t === 'planet') stopShip('PLANET IN THE WAY. DRIVE DISENGAGED.');
+    else if (b.t === 'planet' || b.t === 'rock' || b.t === 'station') stopShip(`${b.t === 'planet' ? 'PLANET' : b.t === 'rock' ? 'ASTEROID' : 'STATION'} IN THE WAY. DRIVE DISENGAGED.`);
+    else if (b.t === 'nest') { hitHero(10); damageNest(tq, 20); stopShip('COLLISION WITH THE ALIEN NEST!'); }
     else { hitHero(10); damageAlien(b.o, 20); stopShip('COLLISION WITH AN ALIEN SHIP!'); }
     return;
   }
@@ -456,25 +505,134 @@ function update(dt) {
   if (H.crippled > 0) { H.crippled -= dt; if (H.crippled <= 0) { H.crippled = 0; say('SYSTEMS BACK ONLINE.', 'good'); sfx.supply(); } }
   if (H.shields < 100 && H.regenT <= 0 && H.energy > 30 && !(H.crippled > 0)) { const r = 1.4 * Math.min(1, H.energy / 500) * dt; H.shields = Math.min(100, H.shields + r); H.energy -= r * 1.2; }
   // hero motion
-  if (H.moving) { H.stepT -= dt; while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); } }
+  if (H.moving) { H.stepT -= dt * tsAt(H.x, H.y); while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); } }
   if (H.jump && (H.jump.t -= dt) <= 0) finishJump();
+  if (H.docking && !H.docking.done && (H.docking.t -= dt) <= 0) finishDock();
   if (U.sd) {
     const before = Math.ceil(U.sd.t); U.sd.t -= dt; if (Math.ceil(U.sd.t) !== before && U.sd.t > 0) sfx.beep(600 + (5 - U.sd.t) * 120);
     if (U.sd.t <= 0) return doSelfDestruct();
   }
   // anomaly identification
-  const an = curQ().anom; if (an && !an.known && cheb(H.x, H.y, an.x, an.y) <= 3) { an.known = true; sfx.ping(); say(`SHORT RANGE SENSORS IDENTIFY: ${ANOM[an.type].name}.`, 'warn'); }
+  const an = curQ().anom; if (an && !an.known && cheb(H.x, H.y, an.x, an.y) <= anIdR(an)) { an.known = true; sfx.ping(); say(`SHORT RANGE SENSORS IDENTIFY: ${ANOM[an.type].name}.`, 'warn'); }
+  updateAnomaly(q, dt); updateStations(q, dt);
   // mines arming
   for (const m of q.mines) if (m.arm > 0) m.arm -= dt;
   // aliens
   let disturb = false;
-  for (const a of q.aliens.slice()) { updateAlien(a, dt); if (a.cloaked && cheb(a.x, a.y, H.x, H.y) <= 4) disturb = true; }
+  for (const a of q.aliens.slice()) { updateAlien(a, dt * tsAt(a.x, a.y)); if (a.cloaked && cheb(a.x, a.y, H.x, H.y) <= 4) disturb = true; }
   if (disturb && !U.disturbMsg) { say('SENSORS DETECT A DISTURBANCE NEARBY...', 'warn'); U.disturbMsg = 12; sfx.ping(); }
   if (U.disturbMsg) U.disturbMsg = Math.max(0, U.disturbMsg - dt);
   // projectiles
-  for (const p of U.proj.slice()) updateProj(p, dt);
+  for (const p of U.proj.slice()) updateProj(p, dt * tsAt(Math.round(p.x), Math.round(p.y)));
   for (const b of U.beams) b.t += dt; U.beams = U.beams.filter(b => b.t < b.dur);
   for (const f of U.fx) f.t += dt; U.fx = U.fx.filter(f => f.t < f.dur);
+}
+// ---- anomaly behaviours ---------------------------------------------------
+function inNebula(q, x, y) { const an = q.anom; return !!an && an.type === 'nebula' && cheb(x, y, an.x, an.y) <= 4; }
+function alienHidden(q, a) { return inNebula(q, a.x, a.y) && cheb(a.x, a.y, H.x, H.y) > 2; }   // ships deep inside a nebula are invisible to your sensors
+function tsAt(x, y) {   // time distortion: things inside the field run slow or fast
+  const an = curQ().anom; if (!an || an.type !== 'timewarp' || cheb(x, y, an.x, an.y) > 4) return 1;
+  return an.mode === 'slow' ? .5 : 1.8;
+}
+function damageNest(q, d) {
+  const n = q.anom; if (!n || n.type !== 'nest') return;
+  n.hp -= d; n.flash = .25; sfx.hit();
+  if (n.hp <= 0) { fx(n.x, n.y, 'big', 1, 1.6); sfx.big(); U.shake = .5; q.anom = null; say('THE ALIEN NEST HAS BEEN DESTROYED!', 'good'); }
+}
+function destroyRock(q, rk) { const an = q.anom; if (!an || !an.rocks) return; const i = an.rocks.indexOf(rk); if (i >= 0) { an.rocks.splice(i, 1); fx(rk.x, rk.y, 'boom', .5, .7); sfx.boom(); } }
+function pullToHole(e, hole, isHero) {
+  const nx = e.x + Math.sign(hole.x - e.x), ny = e.y + Math.sign(hole.y - e.y); if (nx === e.x && ny === e.y) return;
+  const b = blockerAt(curQ(), nx, ny); if (b && !(isHero && b.t === 'hero')) return;
+  if (isHero) { e.x = nx; e.y = ny; checkSector(); } else if (nx === hole.x && ny === hole.y) { say('AN ALIEN SHIP WAS SWALLOWED BY THE BLACK HOLE!', 'good'); killAlien(e); } else { e.x = nx; e.y = ny; }
+}
+function updateAnomaly(q, dt) {
+  const an = q.anom; if (!an) return;
+  if (an.type === 'timewarp') {
+    an.t -= dt;
+    if (an.t <= 0) { an.mode = an.mode === 'slow' ? 'fast' : 'slow'; an.t = 5 + rnd() * 6; if (cheb(H.x, H.y, an.x, an.y) <= 9) say(an.mode === 'slow' ? 'TIME DISTORTION: TIME IS SLOWING DOWN...' : 'TIME DISTORTION: TIME IS ACCELERATING!', 'warn'); }
+  } else if (an.type === 'hole') {
+    an.t -= dt;
+    if (an.t <= 0) {
+      an.t = 1.3;
+      if (cheb(H.x, H.y, an.x, an.y) <= 3 && !H.docking) { if (!U.pullMsg) { say('GRAVITY WELL! THE BLACK HOLE IS PULLING YOU IN - FLY AWAY!', 'bad'); U.pullMsg = 5; sfx.alert(); } pullToHole(H, an, true); if (U.over) return; }
+      for (const a of q.aliens.slice()) if (cheb(a.x, a.y, an.x, an.y) <= 3) pullToHole(a, an, false);
+    }
+    if (U.pullMsg) U.pullMsg = Math.max(0, U.pullMsg - dt);
+  } else if (an.type === 'nest') {
+    an.flash = Math.max(0, an.flash - dt);
+    if (U.grace > 0) return;
+    an.spawnT -= dt;
+    if (an.spawnT <= 0) {
+      an.spawnT = 14 + rnd() * 8;
+      if (an.spawned < 6 && q.aliens.length < 9) {
+        const cells = Object.keys(VEC).map(Number).sort(() => rnd() - .5).map(d => [an.x + VEC[d][0], an.y + VEC[d][1]]).filter(([x, y]) => x >= 0 && y >= 0 && x < SN && y < SN && !occupied(q, x, y));
+        if (cells.length) { const [x, y] = cells[0]; newAlien(rnd() < .6 ? 'scout' : 'raider', q, { x, y }); U.aliensLeft++; an.spawned++; fx(x, y, 'jump', .5, .8); sfx.alert(); say('THE ALIEN NEST HAS SPAWNED A NEW SHIP!', 'bad'); }
+      }
+    }
+  }
+}
+// ---- space stations ---------------------------------------------------------
+// Docking: stop next to a station and press D. After 3 seconds you are resupplied, and you stay docked (sheltered behind the station's
+// shields, weapons offline) until you press D again or fly away. Hits meant for a docked ship drain the station's shields instead.
+function dock() {
+  const q = curQ();
+  if (H.docking) return undock();
+  const s = q.stations.find(s => cheb(s.x, s.y, H.x, H.y) <= 1);
+  if (!s) return say('NO STATION IN RANGE. STOP NEXT TO A SPACE STATION, THEN PRESS D.', 'warn');
+  if (H.moving || H.jump) return say('STOP THE SHIP BEFORE DOCKING.', 'warn');
+  U.pending = null; H.docking = { t: 3, s, done: false }; sfx.dockUp(); say('DOCKING... THE STATION\'S SHIELDS NOW PROTECT YOUR SHIP. WEAPONS OFFLINE WHILE DOCKED.', 'good');
+}
+function undock() { if (!H.docking) return; H.docking = null; sfx.click(); say('UNDOCKED. WEAPONS BACK ONLINE.', 'good'); }
+function finishDock() {
+  const d = H.docking, s = d.s; d.done = true; d.t = 0;
+  if (s.readyAt > U.t) { say(`THE STATION IS STILL RESTOCKING (${Math.ceil(s.readyAt - U.t)}s) - NO SUPPLIES, BUT YOU ARE SHELTERED.`, 'warn'); return; }
+  H.shields = 100; H.hull = 100; H.energy = MAXE; H.torps = 10; H.mines = 6; H.crippled = 0; s.readyAt = U.t + 45;
+  sfx.supply(); say('DOCKING COMPLETE: SHIELDS, HULL, ENERGY, TORPEDOES AND MINES AT 100%. PRESS D TO UNDOCK.', 'good');
+}
+function hitStation(s, d) {
+  const q = curQ(); if (U.over || !q.stations.includes(s)) return;
+  const mine = H.docking && H.docking.s === s;
+  s.shield -= d; s.flash = .4; s.regenT = 4; sfx.hit();
+  if (!U.stMsg) { say(mine ? 'THE STATION IS UNDER FIRE! ITS SHIELDS ARE ABSORBING THE HITS.' : 'ALIENS ARE ATTACKING THE SPACE STATION!', 'warn'); U.stMsg = 5; }
+  if (s.shield <= 0) destroyStation(q, s);
+  else if (s.shield < 100 && !s.warned) { s.warned = true; say(`STATION SHIELDS CRITICAL (${Math.round(s.shield)}/${STATION_SHIELD})${mine ? ' - UNDOCK NOW!' : ''}`, 'bad'); sfx.alert(); }
+}
+function destroyStation(q, s) {
+  q.stations.splice(q.stations.indexOf(s), 1); fx(s.x, s.y, 'big', 1.2, 2); sfx.big(); U.shake = .6; say('THE SPACE STATION HAS BEEN DESTROYED!', 'bad');
+  if (H.docking && H.docking.s === s) { H.docking = null; say('YOU WERE STILL DOCKED WHEN ITS SHIELDS FAILED!', 'bad'); hitHero(90); }
+}
+function updateStations(q, dt) {
+  U.stMsg = Math.max(0, (U.stMsg || 0) - dt);
+  for (const s of q.stations.slice()) {
+    s.flash = Math.max(0, s.flash - dt); s.regenT = Math.max(0, s.regenT - dt); s.cd -= dt;
+    if (s.regenT <= 0 && s.shield < STATION_SHIELD) { s.shield = Math.min(STATION_SHIELD, s.shield + 3 * dt); if (s.shield > 150) s.warned = false; }
+    if (s.cd > 0 || U.grace > 0) continue;
+    let best = null, bd = 99;   // the station returns fire at aligned aliens, but only every 2.5 seconds
+    for (const a of q.aliens) {
+      if (alienHidden(q, a) || (a.cloaked && a.vis < .5)) continue;
+      const dx = a.x - s.x, dy = a.y - s.y, d = Math.max(Math.abs(dx), Math.abs(dy));
+      if (d < 1 || d > 10 || !(dx === 0 || dy === 0 || Math.abs(dx) === Math.abs(dy))) continue;
+      const r = trace(q, s.x, s.y, Math.sign(dx), Math.sign(dy), 12, true);
+      if (r.hit && r.hit.t === 'alien' && r.hit.o === a && d < bd) { bd = d; best = [Math.sign(dx), Math.sign(dy)]; }
+    }
+    if (!best) { s.cd = .4; continue; }
+    s.cd = 2.5; const r = beamPath(q, s.x, s.y, best[0], best[1], 12, true, 'station'); sfx.phaser();
+    if (r.hit && r.hit.t === 'alien') damageAlien(r.hit.o, 20); else if (r.hit && r.hit.t === 'mine') detonate(q, r.hit.o);
+  }
+}
+function salvage(q) {   // derelict ship: loot, or a nasty surprise
+  const k = ri(6); sfx.ping();
+  if (k === 0) { const n = 3 + ri(3); H.torps = Math.min(10, H.torps + n); say(`DERELICT SHIP: SALVAGED ${n} TORPEDOES!`, 'good'); sfx.supply(); }
+  else if (k === 1) { const n = 2 + ri(3); H.mines = Math.min(6, H.mines + n); H.energy = Math.min(MAXE, H.energy + 300); say(`DERELICT SHIP: SALVAGED ${n} MINES AND SOME ENERGY CELLS.`, 'good'); sfx.supply(); }
+  else if (k === 2) { const n = 600 + ri(600); H.energy = Math.min(MAXE, H.energy + n); say(`DERELICT SHIP: ITS REACTOR IS STILL LIVE! ENERGY +${n}.`, 'good'); sfx.supply(); }
+  else if (k === 3) { H.hull = Math.min(100, H.hull + 30); H.shields = 100; say('DERELICT SHIP: SPARE PARTS REPAIR YOUR HULL AND RESTORE YOUR SHIELDS.', 'good'); sfx.supply(); }
+  else if (k === 4) { say('DERELICT SHIP: BOOBY TRAP!', 'bad'); fx(H.x, H.y, 'big', .8, 1); sfx.big(); hitHero(60); }
+  else {
+    say('DERELICT SHIP: IT WAS BAIT - AN ALIEN AMBUSH!', 'bad'); sfx.alert();
+    const cells = Object.keys(VEC).map(Number).sort(() => rnd() - .5).map(d => [H.x + VEC[d][0] * 2, H.y + VEC[d][1] * 2]).filter(([x, y]) => x >= 0 && y >= 0 && x < SN && y < SN && !occupied(q, x, y));
+    for (let i = 0; i < 2 && i < cells.length; i++) { newAlien(rnd() < .5 ? 'raider' : 'cruiser', q, { x: cells[i][0], y: cells[i][1] }); U.aliensLeft++; fx(cells[i][0], cells[i][1], 'jump', .5, .8); }
+    U.grace = .8;
+  }
 }
 function radBlast(q, x, y) {   // a torpedo detonated by a radiation cloud: hurts anything adjacent
   fx(x, y, 'boom', .7, 1.3); sfx.boom();
@@ -484,9 +642,15 @@ function radBlast(q, x, y) {   // a torpedo detonated by a radiation cloud: hurt
 function updateProj(p, dt) {
   const q = curQ(); p.life -= dt; if (p.life <= 0) return void U.proj.splice(U.proj.indexOf(p), 1);
   p.x += p.vx * p.sp * dt; p.y += p.vy * p.sp * dt;
+  const rm = () => { const i = U.proj.indexOf(p); if (i >= 0) U.proj.splice(i, 1); };
+  const hole = q.anom && q.anom.type === 'hole' ? q.anom : null;   // black hole: bends torpedoes toward it and swallows them
+  if (hole) {
+    const hd = Math.hypot(hole.x - p.x, hole.y - p.y);
+    if (hd < .6) { fx(hole.x, hole.y, 'spark', .4, .8); return rm(); }
+    if (hd <= 4) { p.x += (hole.x - p.x) / hd * 3.5 * dt; p.y += (hole.y - p.y) / hd * 3.5 * dt; }
+  }
   const cx = Math.round(p.x), cy = Math.round(p.y);
   if (cx === p.cx && cy === p.cy) return; p.cx = cx; p.cy = cy;
-  const rm = () => { const i = U.proj.indexOf(p); if (i >= 0) U.proj.splice(i, 1); };
   if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) return rm();
   const m = q.mines.find(m => m.x === cx && m.y === cy); if (m) { rm(); return detonate(q, m); }
   const an = q.anom;   // radiation cloud: the torpedo either explodes or is deflected in a random direction
@@ -501,10 +665,11 @@ function updateProj(p, dt) {
     if (b.t === 'hero' && !p.deflected) return;   // your own torpedo only threatens you after a cloud has deflected it
     rm(); fx(cx, cy, 'boom', .5, .8); sfx.boom();
     if (b.t === 'alien') damageAlien(b.o, p.dmg); else if (b.t === 'hero') { say('YOUR OWN TORPEDO WAS DEFLECTED BACK AT YOU!', 'bad'); hitHero(45); }
+    else if (b.t === 'rock') destroyRock(q, b.o); else if (b.t === 'nest') damageNest(q, p.dmg);
   } else {
     if (b.t === 'alien' && !p.deflected) return;
     rm(); fx(cx, cy, 'boom', .5, .8);
-    if (b.t === 'hero') hitHero(p.dmg); else { sfx.boom(); if (b.t === 'alien') damageAlien(b.o, 60); }
+    if (b.t === 'hero') hitHero(p.dmg); else { sfx.boom(); if (b.t === 'alien') damageAlien(b.o, 60); else if (b.t === 'rock') destroyRock(q, b.o); else if (b.t === 'station') hitStation(b.o, p.dmg); }
   }
 }
 function updateAlien(a, dt) {
@@ -512,7 +677,18 @@ function updateAlien(a, dt) {
   a.flash = Math.max(0, a.flash - dt); a.pcd -= dt; a.tcd -= dt; a.mcd -= dt; a.stepT -= dt; a.cloakT -= dt;
   a.vis += ((a.cloaked ? 0 : 1) - a.vis) * Math.min(1, dt * 5);
   a.dT -= dt; if (a.dT <= 0) { a.dT = 1.1; a.dOff = [(rnd() - .5) * 2.4, (rnd() - .5) * 2.4]; }
-  const dx = H.x - a.x, dy = H.y - a.y; a.ang = Math.atan2(dy, dx);
+  // choose a target: usually the hero, but aliens also go after space stations (especially one the hero is docked at)
+  a.tgtT = (a.tgtT || 0) - dt;
+  if (a.tgtT <= 0) {
+    a.tgtT = 4 + rnd() * 4; a.tgt = null; const ss = q.stations;
+    if (ss.length) {
+      const docked = H.docking && ss.includes(H.docking.s) ? H.docking.s : null, near = ss.slice().sort((p, r) => cheb(p.x, p.y, a.x, a.y) - cheb(r.x, r.y, a.x, a.y))[0];
+      if (docked ? rnd() < .85 : rnd() < .3) a.tgt = docked || near;
+    }
+  }
+  if (a.tgt && !q.stations.includes(a.tgt)) a.tgt = null;
+  const tx = a.tgt ? a.tgt.x : H.x, ty = a.tgt ? a.tgt.y : H.y, atHero = !a.tgt;
+  const dx = tx - a.x, dy = ty - a.y; a.ang = Math.atan2(dy, dx);
   if (T.cloak && !a.cloaked && a.cloakT <= 0 && !a.charge) { a.cloaked = true; a.cloakT = 5 + rnd() * 4; sfx.cloak(); }
   if (a.charge) {
     a.charge.t -= dt;
@@ -522,6 +698,7 @@ function updateAlien(a, dt) {
         if (ch.kind === 'phaser') {
           const r = beamPath(q, a.x, a.y, ch.vx, ch.vy, 12, false, 'alien'); sfx.aPhaser();
           if (r.hit && r.hit.t === 'hero') hitHero(T.ph); else if (r.hit && r.hit.t === 'mine') detonate(q, r.hit.o);
+          else if (r.hit && r.hit.t === 'station') hitStation(r.hit.o, T.ph);
           else if (r.scattered && r.hit && r.hit.t === 'alien') damageAlien(r.hit.o, T.ph);   // a scattered beam can hit other aliens (or its own ship)
         } else { U.proj.push({ owner: 'alien', x: a.x, y: a.y, vx: ch.vx, vy: ch.vy, sp: 5.5, dmg: 35, cx: a.x, cy: a.y, life: 4 }); sfx.torp(); }
       }
@@ -535,7 +712,7 @@ function updateAlien(a, dt) {
     for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
       const nx = a.x + ox, ny = a.y + oy; if (nx < 0 || ny < 0 || nx >= SN || ny >= SN) continue;
       if ((ox || oy) && (blockerAt(q, nx, ny) || q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny))) continue;
-      const ddx = H.x - nx, ddy = H.y - ny, d = Math.max(Math.abs(ddx), Math.abs(ddy)), al = (ddx === 0 || ddy === 0 || Math.abs(ddx) === Math.abs(ddy)) && d > 0;
+      const ddx = tx - nx, ddy = ty - ny, d = Math.max(Math.abs(ddx), Math.abs(ddy)), al = (ddx === 0 || ddy === 0 || Math.abs(ddx) === Math.abs(ddy)) && d > 0;
       const s = -Math.abs(d - T.pref) + (al ? 3 : 0) + rnd() * .9 - (ox || oy ? 0 : .6);
       if (s > bs) { bs = s; best = [nx, ny]; }
     }
@@ -548,10 +725,10 @@ function updateAlien(a, dt) {
   if (T.mine && a.mcd <= 0 && !grace && q.mines.filter(m => m.owner === 'alien').length < 8 && !q.mines.some(m => m.x === a.x && m.y === a.y)) { q.mines.push({ x: a.x, y: a.y, owner: 'alien', arm: 2 }); a.mcd = 9 + rnd() * 6; }
   // firing
   if (grace) return;
-  const dx2 = H.x - a.x, dy2 = H.y - a.y, d = Math.max(Math.abs(dx2), Math.abs(dy2));
-  if (d > 0 && d <= 8 && (dx2 === 0 || dy2 === 0 || Math.abs(dx2) === Math.abs(dy2))) {
+  const dx2 = tx - a.x, dy2 = ty - a.y, d = Math.max(Math.abs(dx2), Math.abs(dy2));
+  if (d > 0 && d <= 8 && !(atHero && inNebula(q, H.x, H.y) && d > 3) && (dx2 === 0 || dy2 === 0 || Math.abs(dx2) === Math.abs(dy2))) {   // a hero hiding in a nebula can only be seen from close range
     const vx = Math.sign(dx2), vy = Math.sign(dy2), r = trace(q, a.x, a.y, vx, vy, 12, false);
-    if (r.hit && r.hit.t === 'hero') {
+    if (r.hit && r.hit.t === (atHero ? 'hero' : 'station')) {
       if (a.cloaked) { if (a.pcd <= 0 || a.tcd <= 0) { a.cloaked = false; a.cloakT = 2.5; sfx.decloak(); } return; }
       if (T.torp && a.tcd <= 0 && d >= 2 && rnd() < .5) { a.charge = { kind: 'torp', vx, vy, t: .7 }; a.tcd = T.tcd + rnd() * 2; }
       else if (a.pcd <= 0) { a.charge = { kind: 'phaser', vx, vy, t: .55 }; a.pcd = T.pcd + rnd(); }
@@ -623,6 +800,63 @@ function drawMine(ctx, m, x, y, t) {
 
 // ================================================================ drawing: short range
 const cx = v => (v + .5) * CELL;
+function drawAnomLayer(q, t) {
+  const an = q.anom; if (!an) return; const x = cx(an.x), y = cx(an.y), col = ANOM[an.type].col;
+  const label = dy => { c.fillStyle = col; c.font = '7px "Courier New"'; c.textAlign = 'center'; c.fillText(ANOM[an.type].name, x, y + dy); };
+  if (an.type === 'nebula') {   // drifting gas: physically visible even before it is identified
+    for (let i = 0; i < 9; i++) {
+      const a = i * .7 + t * .08, r = 2.3 * CELL, px = x + Math.cos(a * 1.7 + i) * r * .75, py = y + Math.sin(a + i * 2) * r * .75;
+      const gr = c.createRadialGradient(px, py, 3, px, py, r * .75); gr.addColorStop(0, 'rgba(185,123,255,.26)'); gr.addColorStop(1, 'rgba(185,123,255,0)');
+      c.fillStyle = gr; c.beginPath(); c.arc(px, py, r * .75, 0, 6.3); c.fill();
+    }
+  } else if (an.type === 'hole') {
+    c.save(); c.translate(x, y);
+    const gr = c.createRadialGradient(0, 0, 6, 0, 0, 3 * CELL); gr.addColorStop(0, 'rgba(255,138,61,.28)'); gr.addColorStop(1, 'rgba(255,138,61,0)'); c.fillStyle = gr; c.beginPath(); c.arc(0, 0, 3 * CELL, 0, 6.3); c.fill();
+    for (let i = 0; i < 3; i++) { c.strokeStyle = `rgba(255,${140 + i * 40},${60 + i * 60},${.75 - i * .18})`; c.lineWidth = 3 - i * .7; c.beginPath(); c.ellipse(0, 0, 20 + i * 6, 7 + i * 2.5, t * .6 + i, 0, 6.3); c.stroke(); }
+    c.fillStyle = '#000'; c.beginPath(); c.arc(0, 0, 11, 0, 6.3); c.fill(); c.strokeStyle = '#ffb070'; c.lineWidth = 1; c.stroke(); c.restore();
+  } else if (an.type === 'nest') {
+    const pulse = 1 + Math.sin(t * 3) * .08; c.save(); c.translate(x, y);
+    c.strokeStyle = '#3d8a3d'; c.lineWidth = 2;
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + Math.sin(t + i) * .15; c.beginPath(); c.moveTo(Math.cos(a) * 8, Math.sin(a) * 8); c.quadraticCurveTo(Math.cos(a + .4) * 16, Math.sin(a + .4) * 16, Math.cos(a) * 21, Math.sin(a) * 21); c.stroke(); }
+    const gr = c.createRadialGradient(-3, -3, 2, 0, 0, 14 * pulse); gr.addColorStop(0, an.flash > 0 ? '#ffffff' : '#c8ffb0'); gr.addColorStop(.6, '#3fae3f'); gr.addColorStop(1, '#1a4a2a');
+    c.fillStyle = gr; c.beginPath(); c.arc(0, 0, 13 * pulse, 0, 6.3); c.fill();
+    c.fillStyle = '#ffe14d'; c.beginPath(); c.arc(-4, -2, 2.4, 0, 6.3); c.arc(4, -2, 2.4, 0, 6.3); c.fill(); c.fillStyle = '#300'; c.beginPath(); c.arc(-4, -2, 1, 0, 6.3); c.arc(4, -2, 1, 0, 6.3); c.fill();
+    c.restore(); c.fillStyle = '#300'; c.fillRect(x - 14, y - 26, 28, 3); c.fillStyle = '#7dff7d'; c.fillRect(x - 14, y - 26, 28 * Math.max(0, an.hp) / 250, 3);
+  } else if (an.type === 'derelict') {
+    c.save(); c.translate(x, y); c.rotate(Math.sin(t * .4) * .3 + .5); c.fillStyle = '#5b6674'; poly(c, [[16, 0], [4, -6], [-10, -7], [-14, -2], [-12, 3], [-6, 8], [6, 6]]); c.fill();
+    c.strokeStyle = '#2a323c'; c.lineWidth = 1.5; c.stroke(); c.fillStyle = '#2a323c'; c.fillRect(-6, -2, 8, 3); c.restore();
+    if (((t * 6) | 0) % 4 === 0) { c.fillStyle = '#ffe14d'; c.fillRect(x + (rnd() - .5) * 24, y + (rnd() - .5) * 18, 2, 2); }
+  } else if (an.type === 'timewarp' && an.known) {
+    const fast = an.mode === 'fast';
+    for (let i = 0; i < 4; i++) { const k = (((t * (fast ? .8 : -.5) + i / 4) % 1) + 1) % 1; c.strokeStyle = fast ? `rgba(255,165,61,${1 - k})` : `rgba(79,216,255,${1 - k})`; c.lineWidth = 2; c.beginPath(); c.arc(x, y, (.5 + k * 4) * CELL, 0, 6.3); c.stroke(); }
+    c.fillStyle = fast ? '#ffa53d' : '#4fd8ff'; c.font = 'bold 9px "Courier New"'; c.textAlign = 'center'; c.fillText(fast ? 'TIME: FAST' : 'TIME: SLOW', x, y + 4);
+  } else if (an.type === 'minefield' && an.known) {
+    c.strokeStyle = 'rgba(255,106,106,.5)'; c.lineWidth = 1.5; c.setLineDash([6, 6]); c.beginPath(); c.arc(x, y, 3.6 * CELL, 0, 6.3); c.stroke(); c.setLineDash([]);
+  }
+  if (!an.known) { drawAnom(c, an, x, y, t); return; }   // unidentified: the purple '?' marker
+  if (['storm', 'radiat', 'worm', 'depot'].includes(an.type)) drawAnom(c, an, x, y, t);
+  else label(an.type === 'nebula' || an.type === 'timewarp' || an.type === 'minefield' || an.type === 'hole' ? -3.6 * CELL + 6 : 30);
+}
+function drawExtras(q, t) {
+  if (q.anom && q.anom.rocks) for (const rk of q.anom.rocks) {
+    c.save(); c.translate(cx(rk.x), cx(rk.y)); c.rotate(rk.seed); c.fillStyle = `hsl(30,${15 + rk.seed % 15}%,${36 + rk.seed % 14}%)`; c.beginPath();
+    for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283, r = 11 + ((rk.seed * (i + 3)) % 7) - 3; c.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+    c.closePath(); c.fill(); c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1.2; c.stroke(); c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.arc(3, 2, 3, 0, 6.3); c.fill(); c.restore();
+  }
+  for (const s of q.stations) {
+    const x = cx(s.x), y = cx(s.y), ready = s.readyAt <= U.t;
+    c.save(); c.translate(x, y);
+    c.fillStyle = '#2f62d8'; c.fillRect(-21, -4, 11, 8); c.fillRect(10, -4, 11, 8); c.strokeStyle = '#8fb4ff'; c.lineWidth = 1; c.strokeRect(-21, -4, 11, 8); c.strokeRect(10, -4, 11, 8);
+    c.beginPath(); c.moveTo(-15.5, -4); c.lineTo(-15.5, 4); c.moveTo(15.5, -4); c.lineTo(15.5, 4); c.stroke();
+    c.strokeStyle = '#cfe8ff'; c.lineWidth = 3; c.beginPath(); c.arc(0, 0, 11, 0, 6.3); c.stroke();
+    c.fillStyle = '#8fb4d9'; c.beginPath(); c.arc(0, 0, 6, 0, 6.3); c.fill(); c.fillStyle = '#12305a'; c.beginPath(); c.arc(0, 0, 2.5, 0, 6.3); c.fill();
+    for (let i = 0; i < 4; i++) { const a = t * 1.2 + i * Math.PI / 2; c.fillStyle = ready ? '#33ff66' : '#ff9a4d'; c.beginPath(); c.arc(Math.cos(a) * 11, Math.sin(a) * 11, 1.8, 0, 6.3); c.fill(); }
+    c.restore();
+    c.fillStyle = ready ? '#7fe8ff' : '#ff9a4d'; c.font = '7px "Courier New"'; c.textAlign = 'center'; c.fillText(ready ? 'SPACE STATION' : 'RESTOCKING ' + Math.ceil(s.readyAt - U.t) + 's', x, y + 25);
+    const f = Math.max(0, s.shield) / STATION_SHIELD; c.fillStyle = '#0a1a33'; c.fillRect(x - 16, y + 29, 32, 3); c.fillStyle = f > .5 ? '#4fd8ff' : f > .25 ? '#ffc447' : '#ff4d5e'; c.fillRect(x - 16, y + 29, 32 * f, 3);
+    if (s.flash > 0) { c.strokeStyle = `rgba(79,216,255,${Math.min(1, s.flash * 2.5)})`; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, 27, 0, 6.3); c.stroke(); }
+  }
+}
 function drawSR(t) {
   const q = curQ();
   c.save(); if (U.shake > 0) c.translate((rnd() - .5) * U.shake * 14, (rnd() - .5) * U.shake * 14);
@@ -647,11 +881,13 @@ function drawSR(t) {
     for (const d in VEC) { const [vx, vy] = VEC[d]; c.beginPath(); c.moveTo(cx(H.x), cx(H.y)); c.lineTo(cx(H.x) + vx * SW, cx(H.y) + vy * SW); c.stroke();
       const lx = cx(H.x) + vx * 32, ly = cx(H.y) + vy * 32; c.setLineDash([]); c.fillStyle = 'rgba(255,255,255,.75)'; c.font = 'bold 11px "Courier New"'; c.textAlign = 'center'; c.fillText(d, lx, ly + 4); c.setLineDash([4, 5]); } c.setLineDash([]); }
   if (H.moving) { const [vx, vy] = VEC[H.dir]; c.strokeStyle = 'rgba(51,255,102,.4)'; c.lineWidth = 2; c.setLineDash([2, 4]); c.beginPath(); c.moveTo(cx(H.x), cx(H.y)); c.lineTo(cx(H.x + vx * H.remaining), cx(H.y + vy * H.remaining)); c.stroke(); c.setLineDash([]); }
-  if (q.anom) drawAnom(c, q.anom, cx(q.anom.x), cx(q.anom.y), t);
+  drawAnomLayer(q, t);
   for (const p of q.planets) drawPlanet(c, p, cx(p.x), cx(p.y));
   q.stars.forEach((s, i) => drawStar(c, cx(s.x), cx(s.y), s.col, t, i));
+  drawExtras(q, t);
   for (const m of q.mines) { if (m.owner === 'hero' || cheb(m.x, m.y, H.x, H.y) <= 3) drawMine(c, m, cx(m.x), cx(m.y), t); }
   for (const a of q.aliens) {
+    if (alienHidden(q, a)) continue;
     if (a.cloaked && a.vis < .15) { if (cheb(a.x, a.y, H.x, H.y) <= 4) { const ox = cx(a.x + a.dOff[0]), oy = cx(a.y + a.dOff[1]);
         c.strokeStyle = 'rgba(192,139,255,.55)'; c.lineWidth = 1.5; c.setLineDash([3, 4]); c.beginPath(); c.arc(ox, oy, 26 + Math.sin(t * 5) * 3, 0, 6.3); c.stroke(); c.setLineDash([]); c.fillStyle = 'rgba(192,139,255,.8)'; c.font = '8px "Courier New"'; c.textAlign = 'center'; c.fillText('DISTURBANCE', ox, oy + 3); } continue; }
     drawAlienShip(c, a, cx(a.x), cx(a.y), t);
@@ -660,8 +896,12 @@ function drawSR(t) {
   }
   if (!U.over || H.hull > 0) drawHero(c, cx(H.x), cx(H.y), Math.atan2(VEC[H.dir][1], VEC[H.dir][0]), H.flash > 0);
   if (H.crippled > 0) { c.fillStyle = '#ffe14d'; for (let i = 0; i < 6; i++) c.fillRect(cx(H.x) + (rnd() - .5) * 40, cx(H.y) + (rnd() - .5) * 40, 2, 2); }
+  if (H.docking) {
+    const s = H.docking.s; c.strokeStyle = `rgba(51,255,102,${.5 + .4 * Math.sin(t * 12)})`; c.lineWidth = 3; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(cx(s.x), cx(s.y)); c.lineTo(cx(H.x), cx(H.y)); c.stroke(); c.setLineDash([]);
+    c.beginPath(); c.arc(cx(H.x), cx(H.y), 24, 0, 6.3); c.stroke();
+  }
   if (H.jump) { c.strokeStyle = `rgba(200,150,255,${.4 + .4 * Math.sin(t * 20)})`; c.lineWidth = 2; c.beginPath(); c.arc(cx(H.x), cx(H.y), 22 + (2 - H.jump.t) * 6, 0, 6.3); c.stroke(); }
-  for (const b of U.beams) { const k = b.t / b.dur, col = b.owner === 'hero' ? '79,216,255' : '255,90,90'; c.strokeStyle = `rgba(${col},${1 - k})`; c.lineWidth = 3 - k * 2; c.shadowColor = `rgb(${col})`; c.shadowBlur = 10;
+  for (const b of U.beams) { const k = b.t / b.dur, col = b.owner === 'hero' ? '79,216,255' : b.owner === 'station' ? '51,255,102' : '255,90,90'; c.strokeStyle = `rgba(${col},${1 - k})`; c.lineWidth = 3 - k * 2; c.shadowColor = `rgb(${col})`; c.shadowBlur = 10;
     c.beginPath(); c.moveTo(cx(b.x1), cx(b.y1)); c.lineTo(cx(b.x2), cx(b.y2)); c.stroke(); c.shadowBlur = 0; }
   for (const p of U.proj) { const col = p.owner === 'hero' ? '#7fe8ff' : '#ff8a5c'; c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 12; c.beginPath(); c.arc(cx(p.x), cx(p.y), 4, 0, 6.3); c.fill(); c.shadowBlur = 0;
     c.strokeStyle = col; c.globalAlpha = .4; c.lineWidth = 2; c.beginPath(); c.moveTo(cx(p.x), cx(p.y)); c.lineTo(cx(p.x - p.vx * .6), cx(p.y - p.vy * .6)); c.stroke(); c.globalAlpha = 1; }
@@ -670,6 +910,8 @@ function drawSR(t) {
     c.strokeStyle = f.kind === 'jump' ? '#e0c0ff' : '#ff6a3a'; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r, 0, 6.3); c.stroke(); c.globalAlpha = 1; }
   c.restore(); drawMini(t, cam);
   if (H.crippled > 0) { c.fillStyle = '#ff4d5e'; c.font = 'bold 14px "Courier New"'; c.textAlign = 'center'; c.fillText('SYSTEMS CRIPPLED ' + H.crippled.toFixed(1) + 's', SW / 2, 50); }
+  if (H.docking) { c.fillStyle = '#33ff66'; c.font = 'bold 14px "Courier New"'; c.textAlign = 'center'; c.fillText(H.docking.done ? 'DOCKED - WEAPONS OFFLINE - PRESS D TO UNDOCK' : 'DOCKING... ' + H.docking.t.toFixed(1) + 's', SW / 2, 26); }
+  else if (q.stations.some(s => cheb(s.x, s.y, H.x, H.y) <= 1) && !H.moving) { c.fillStyle = '#7fe8ff'; c.font = 'bold 12px "Courier New"'; c.textAlign = 'center'; c.fillText('STATION IN RANGE - PRESS D TO DOCK', SW / 2, 26); }
   if (U.jm) { c.fillStyle = '#c08bff'; c.font = 'bold 13px "Courier New"'; c.textAlign = 'center'; c.fillText('HYPERJUMP: HOW MANY SECTORS? (1-9, 0 = 10)', SW / 2, 26); }
   if (H.flash > 0) { c.fillStyle = `rgba(255,40,40,${H.flash * .35})`; c.fillRect(0, 0, SW, SW); }
   c.fillStyle = 'rgba(79,216,255,.7)'; c.font = 'bold 10px "Courier New"'; c.textAlign = 'right'; c.fillText(`QUADRANT ${H.qx + 1},${H.qy + 1}`, SW - 6, SW - 6);
@@ -689,9 +931,12 @@ function drawMini(t, cam) {
   const d = big ? 4 : 2;   // dot sizes
   c.fillStyle = '#ffd54d'; for (const s of q.stars) c.fillRect(s.x * k, s.y * k, d, d);
   c.fillStyle = '#6fb8ff'; for (const p of q.planets) c.fillRect(p.x * k - .5, p.y * k - .5, d + 1, d + 1);
+  c.fillStyle = '#4fd8ff'; for (const s of q.stations) { c.fillRect(s.x * k - 1, s.y * k - 1, d + 2, d + 2); if (big) { c.font = 'bold 10px "Courier New"'; c.textAlign = 'left'; c.fillText('STATION', s.x * k + 8, s.y * k + 4); } }
+  if (q.anom && q.anom.rocks) { c.fillStyle = '#a08c70'; for (const r of q.anom.rocks) c.fillRect(r.x * k, r.y * k, d, d); }
+  if (big && q.anom && q.anom.known && ['nebula', 'timewarp'].includes(q.anom.type)) { c.fillStyle = 'rgba(185,123,255,.13)'; c.fillRect((q.anom.x - 4) * k, (q.anom.y - 4) * k, 9 * k, 9 * k); }
   if (q.anom) { c.fillStyle = '#c08bff'; c.fillRect(q.anom.x * k - 1, q.anom.y * k - 1, d + 2, d + 2); if (big) { c.font = 'bold 10px "Courier New"'; c.textAlign = 'left'; c.fillText(q.anom.known ? ANOM[q.anom.type].name : '?', q.anom.x * k + 8, q.anom.y * k + 8); } }
   for (const m of q.mines) { if (m.owner === 'hero') { c.fillStyle = '#4fd8ff'; c.fillRect(m.x * k, m.y * k, d, d); } else if (cheb(m.x, m.y, H.x, H.y) <= 3) { c.fillStyle = '#ff4d5e'; c.fillRect(m.x * k, m.y * k, d, d); } }
-  for (const a of q.aliens) if (!(a.cloaked && a.vis < .15)) { c.fillStyle = ATYPES[a.type].col; c.fillRect(a.x * k - 1, a.y * k - 1, d + 2, d + 2); c.strokeStyle = '#ff4d5e'; c.lineWidth = 1; c.strokeRect(a.x * k - 2, a.y * k - 2, d + 4, d + 4); }
+  for (const a of q.aliens) if (!(a.cloaked && a.vis < .15) && !alienHidden(q, a)) { c.fillStyle = ATYPES[a.type].col; c.fillRect(a.x * k - 1, a.y * k - 1, d + 2, d + 2); c.strokeStyle = '#ff4d5e'; c.lineWidth = 1; c.strokeRect(a.x * k - 2, a.y * k - 2, d + 4, d + 4); }
   c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1; c.strokeRect(cam.x * k, cam.y * k, VIEW * k, VIEW * k);
   if (((t * 3) | 0) & 1) { c.fillStyle = '#fff'; c.fillRect(H.x * k - 2, H.y * k - 2, d + 3, d + 3); }
   c.fillStyle = 'rgba(160,190,230,.75)'; c.font = (big ? 10 : 7) + 'px "Courier New"'; c.textAlign = 'left';
@@ -703,19 +948,20 @@ const isScanned = (x, y) => Math.abs(x - H.qx) <= 1 && Math.abs(y - H.qy) <= 1;
 function scanAround() {   // the long range scanner: current + adjacent quadrants are read live, and remembered as "last scan"
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     const x = H.qx + dx, y = H.qy + dy; if (x < 0 || y < 0 || x >= GN || y >= GN) continue;
-    const q = Q(x, y), i = qInfo(q); if (i) q.mem = { al: i.al, st: i.st, pl: i.pl, an: i.an ? i.an.type : null };
+    const q = Q(x, y), i = qInfo(q); if (i) q.mem = { al: i.al, st: i.st, pl: i.pl, sn: i.sn, an: i.an ? i.an.type : null };
   }
 }
 function qInfo(q) {
   if (q.anom && !q.anom.known) return null;
-  return { al: q.aliens.filter(a => !(ATYPES[a.type].cloak && a.cloaked)).length, st: q.stars.length, pl: q.planets.length, an: q.anom };
+  const seen = a => !(ATYPES[a.type].cloak && a.cloaked) && !(inNebula(q, a.x, a.y) && !(q === curQ() && cheb(a.x, a.y, H.x, H.y) <= 2));
+  return { al: q.aliens.filter(seen).length, st: q.stars.length, pl: q.planets.length, sn: q.stations.length, an: q.anom };
 }
 function drawLR(t) {
   g.fillStyle = '#03040a'; g.fillRect(0, 0, GW, GW);
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y), px = x * GC, py = y * GC, here = x === H.qx && y === H.qy, sc = isScanned(x, y);
     let info = null, dim = false;
-    if (sc) info = qInfo(q); else if (q.mem) { info = { al: q.mem.al, st: q.mem.st, pl: q.mem.pl, an: q.mem.an ? { type: q.mem.an } : null }; dim = true; }
+    if (sc) info = qInfo(q); else if (q.mem) { info = { al: q.mem.al, st: q.mem.st, pl: q.mem.pl, sn: q.mem.sn, an: q.mem.an ? { type: q.mem.an } : null }; dim = true; }
     g.fillStyle = here ? 'rgba(79,216,255,.16)' : q.visited ? 'rgba(40,70,120,.22)' : 'rgba(20,30,60,.25)'; g.fillRect(px + 1, py + 1, GC - 2, GC - 2);
     g.strokeStyle = 'rgba(79,216,255,.18)'; g.strokeRect(px + .5, py + .5, GC - 1, GC - 1);
     g.font = '7px "Courier New"'; g.fillStyle = 'rgba(160,190,230,.45)'; g.textAlign = 'left'; g.fillText(`${x + 1},${y + 1}`, px + 3, py + 8);
@@ -725,6 +971,7 @@ function drawLR(t) {
     g.fillStyle = info.al ? '#ff6a7a' : '#4a4f66'; g.fillText('☠' + info.al, px + 5, py + 21);
     g.fillStyle = '#ffd54d'; g.fillText('★' + info.st, px + 5, py + 32); g.fillStyle = '#6fb8ff'; g.fillText('●' + info.pl, px + 5, py + 43);
     if (info.an) { g.fillStyle = ANOM[info.an.type].col; g.fillText('◎', px + 34, py + 43); }
+    if (info.sn) { g.strokeStyle = '#4fd8ff'; g.lineWidth = 1.5; g.beginPath(); g.arc(px + 36, py + 17, 4, 0, 6.3); g.moveTo(px + 30, py + 17); g.lineTo(px + 42, py + 17); g.stroke(); g.fillStyle = '#4fd8ff'; g.fillText(info.sn, px + 43, py + 21); }
     g.globalAlpha = 1;
   }
   { const a0 = Math.max(0, H.qx - 1), b0 = Math.max(0, H.qy - 1), a1 = Math.min(GN - 1, H.qx + 1), b1 = Math.min(GN - 1, H.qy + 1);
@@ -742,12 +989,13 @@ function updateHUD() {
   $('sTorp').textContent = H.torps; $('sMine').textContent = H.mines; $('sAl').textContent = U.aliensLeft; $('sPos').textContent = `${H.qx + 1},${H.qy + 1} / ${H.x + 1},${H.y + 1}`;
   let p = '';
   if (U.sd) p = `SELF-DESTRUCT IN ${Math.ceil(U.sd.t)}... PRESS K AGAIN TO CANCEL.`;
+  else if (H.docking) p = (H.docking.done ? 'DOCKED' : `DOCKING (${H.docking.t.toFixed(1)}s)`) + ` - STATION SHIELDS ${Math.max(0, Math.round(H.docking.s.shield))}/${STATION_SHIELD}. WEAPONS OFFLINE. PRESS D TO UNDOCK.`;
   else if (H.crippled > 0) p = `SHIP CRIPPLED - SYSTEMS OFFLINE FOR ${H.crippled.toFixed(1)}s. YOU ARE VULNERABLE!`;
   else if (U.jm) p = 'HYPERJUMP: PRESS A NUMBER 1-9 (0 = 10) FOR THE NUMBER OF SECTORS. DIRECTION IS RANDOM - YOU MAY LAND IN ANOTHER QUADRANT. ESC CANCELS.';
   else if (H.jump) p = 'HYPERDRIVE CHARGING...';
   else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAY MINE: PRESS A DIRECTION (NUMPAD 1-9)', move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S STOPS.`;
-  else p = 'READY. M = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   H = HELP';
+  else p = 'READY. M = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   D = DOCK   H = HELP';
   $('prompt').textContent = p;
   $('distv').textContent = H.dist; $('distc').textContent = 'ENERGY COST ' + driveCost(H.dist);
   $('jnums').style.display = U.jm ? 'grid' : 'none';
@@ -772,7 +1020,18 @@ SELF DESTRUCT (K): 5 second countdown, then everything in the quadrant is destro
 SPACE pauses. Weapons work while moving.
 
 DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines. Stars and planets block movement and shots.
-ANOMALIES: ion storm (drains shields), wormhole (random teleport), supply depot (restocks you).
+SPACE STATIONS (1-4 in the galaxy, shown as a ring icon on the long range scanner): stop in a sector NEXT TO a station and press D. After 3 seconds your shields, hull, energy, torpedoes and mines are all restored to 100% and any crippling is repaired. A station then needs 45 seconds to restock. You STAY docked until you press D again or fly away, and your weapons are offline while docked.
+ A docked ship is protected by the station's shields (400 - four times yours): every hit meant for you drains the station instead. Aliens attack stations too, especially one you are docked at. Stations fire back at aligned aliens, but only every few seconds. If the station's shields run out it is destroyed, and a docked ship goes with it - undock in time! Shields recover slowly when the station is not under fire. Stations block movement and shots.
+
+ANOMALIES (each is hidden as ??? until you fly close):
+ ION STORM - drains your shields.   WORMHOLE - random teleport.   SUPPLY DEPOT - restocks you (one use).
+ BLACK HOLE - pulls ships and torpedoes in from 3 sectors away; anything reaching the middle is destroyed, aliens included. Fly away!
+ NEBULA - sensors go blind inside it: aliens in the gas are invisible from more than 2 sectors, and you are invisible to them from more than 3.
+ ASTEROID FIELD - rocks block movement and phasers. Torpedoes blast them apart.
+ DERELICT SHIP - fly into it to salvage: torpedoes, mines, energy or repairs... or a booby trap, or an alien ambush.
+ TIME DISTORTION - inside the field everything, including you, runs slow or fast, and it flips every few seconds.
+ MINEFIELD - a patch of hidden mines that only show up when you are within 3 sectors.
+ ALIEN NEST - a hive that keeps spawning new alien ships until you destroy it (phasers and torpedoes hurt it).
 RADIATION CLOUD: flying into one triggers ONE random effect - a scrambled hyperjump to a random sector or quadrant, an energy drain, a shield drain, an energy surge, fully restored shields, the ship is CRIPPLED for up to 12 seconds (no drive, weapons or shields - enemy hits go straight to the hull), or nothing happens at all. Torpedoes entering a cloud either explode (hurting anything adjacent), are deflected in a random direction, or fly straight on; phaser beams either fizzle out, scatter in a random direction, or carry on unaffected. A deflected or scattered weapon can hit anything in its new path - including the ship that fired it!`;
 function showHelp() { if (U) U.paused = true; engineOff(); showOverlay('CONTROLS', HELP, 'CONTINUE', () => { if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); } }); }
 
@@ -790,6 +1049,7 @@ addEventListener('keydown', e => {
   switch (k) {
     case 'KeyM': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyL': cmd('mine'); break;
     case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
+    case 'KeyD': cmd('dock'); break;
     case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break; case 'KeyS': cmd('stop'); break; case 'KeyH': cmd('help'); break;
     case 'Space': e.preventDefault(); cmd('pause'); break;
     case 'Escape': if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } U.pending = null; U.jm = null; break;
@@ -800,12 +1060,12 @@ function setDist(v) { H.dist = Math.max(1, Math.min(40, v)); $('dist').value = H
 $('dist').oninput = e => { H.dist = +e.target.value; };
 for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () => { initAudio(); heroDir(+b.dataset.d); };
 $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
-for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cJump', 'jump'], ['cSD', 'sd'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
+for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
 $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
 for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); };
 lr.addEventListener('pointerdown', e => {
   initAudio(); if (!U) return; const r = lr.getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / r.width * GN), y = Math.floor((e.clientY - r.top) / r.height * GN);
-  const q = Q(x, y), sc = isScanned(x, y), i = sc ? qInfo(q) : q.mem, fmt = i => `${i.al} ALIEN${i.al === 1 ? '' : 'S'}, ${i.st} STARS, ${i.pl} PLANETS.`;
+  const q = Q(x, y), sc = isScanned(x, y), i = sc ? qInfo(q) : q.mem, fmt = i => `${i.al} ALIEN${i.al === 1 ? '' : 'S'}, ${i.st} STARS, ${i.pl} PLANETS, ${i.sn} STATION${i.sn === 1 ? '' : 'S'}.`;
   say(`QUADRANT ${x + 1},${y + 1}: ` + (sc ? (i ? fmt(i) : 'LONG RANGE SENSORS JAMMED BY AN ANOMALY. GET CLOSER.') : i ? 'LAST SCAN: ' + fmt(i) : 'OUT OF SCANNER RANGE (ADJACENT QUADRANTS ONLY).'));
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden && U && !U.over && !U.paused) { U.paused = true; engineOff(); } });
