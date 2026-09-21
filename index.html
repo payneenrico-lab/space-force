@@ -314,13 +314,20 @@ function killAlien(a) {
   say(`${ATYPES[a.type].name} DESTROYED. ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} REMAIN.`, 'good');
   if (U.aliensLeft === 0 && !U.over) { U.endT = 1.6; U.pendingEnd = [true, 'ALL ALIEN SHIPS HAVE BEEN DESTROYED. THE GALAXY IS SAFE!']; }
 }
-function detonate(q, m) {
+function detonate(q, m) {   // a mine that was sitting in space (alien mines, minefields) goes off
   const i = q.mines.indexOf(m); if (i < 0) return; q.mines.splice(i, 1);
-  fx(m.x, m.y, 'big', 1, 1.6); sfx.big(); U.shake = .5;
-  for (const a of q.aliens.slice()) if (cheb(a.x, a.y, m.x, m.y) <= 1) killAlien(a);
-  for (const s of q.stations.slice()) if (cheb(s.x, s.y, m.x, m.y) <= 1) hitStation(s, 150);
-  if (q === curQ() && cheb(H.x, H.y, m.x, m.y) <= 1) { say('CAUGHT IN A MINE BLAST!', 'bad'); hitHero(70); }
-  for (const o of q.mines.slice()) if (cheb(o.x, o.y, m.x, m.y) <= 1) detonate(q, o);
+  blastAt(q, m.x, m.y);
+}
+function blastAt(q, x, y) {   // a mine explosion: destroys everything in the sector and all 8 adjacent sectors
+  fx(x, y, 'big', 1, 1.6); sfx.big(); U.shake = .5;
+  for (const a of q.aliens.slice()) if (cheb(a.x, a.y, x, y) <= 1) killAlien(a);
+  for (const s of q.stations.slice()) if (cheb(s.x, s.y, x, y) <= 1) hitStation(s, 150);   // stations take damage too
+  if (q.anom) {
+    if (q.anom.rocks) for (const rk of q.anom.rocks.slice()) if (cheb(rk.x, rk.y, x, y) <= 1) destroyRock(q, rk);
+    if (q.anom.type === 'nest' && cheb(q.anom.x, q.anom.y, x, y) <= 1) damageNest(q, 120);
+  }
+  if (q === curQ() && cheb(H.x, H.y, x, y) <= 1) { say('CAUGHT IN A MINE BLAST!', 'bad'); hitHero(70); }
+  for (const o of q.mines.slice()) if (cheb(o.x, o.y, x, y) <= 1) detonate(q, o);
 }
 function endGame(win, msg) {
   if (U.over) return; U.over = true; engineOff(); (win ? sfx.win : sfx.lose)(); say(msg, win ? 'good' : 'bad');
@@ -353,9 +360,10 @@ function heroDir(d) {
   if (U.sd) return;
   if (U.jm) return;
   const p = U.pending;
+  if (p && p.stage === 'dist') return;   // waiting for a distance number, not a direction
   if (p) {
     U.pending = null;
-    if (p.cmd === 'phaser') firePhaser(d); else if (p.cmd === 'torp') fireTorp(d); else if (p.cmd === 'mine') layMine(d); else if (p.cmd === 'move') engage(d);
+    if (p.cmd === 'phaser') firePhaser(d); else if (p.cmd === 'torp') fireTorp(d); else if (p.cmd === 'mine') askMineDistance(d); else if (p.cmd === 'move') engage(d);
     return;
   }
   if (H.moving) { H.dir = d; say(`COURSE CHANGED (${dirName(d)}).`); sfx.click(); }
@@ -393,11 +401,18 @@ function fireTorp(d) {
   H.torps--; const [vx, vy] = VEC[d];
   U.proj.push({ owner: 'hero', x: H.x, y: H.y, vx, vy, sp: 9, dmg: 80, cx: H.x, cy: H.y, life: 3 }); sfx.torp();
 }
-function layMine(d) {
+// Mines are launched: L, a direction, then a number 1-9 (0 = 10) for how many sectors the mine travels. It explodes at the end of its
+// run, or the moment it hits a ship or any obstacle. The blast destroys everything in the sector and the 8 around it.
+function askMineDistance(d) {
   if (H.mines <= 0) return say('NO MINES REMAIN.', 'bad');
-  const q = curQ(), [vx, vy] = VEC[d], x = H.x + vx, y = H.y + vy;
-  if (x < 0 || y < 0 || x >= SN || y >= SN || blockerAt(q, x, y) || q.mines.some(m => m.x === x && m.y === y)) return say('CANNOT LAY A MINE THERE.', 'warn');
-  H.mines--; q.mines.push({ x, y, owner: 'hero', arm: 2 }); sfx.mine(); say(`MINE LAID AT SECTOR ${x + 1},${y + 1}. KEEP CLEAR.`);
+  if (U.proj.filter(p => p.mine && p.owner === 'hero').length >= 2) return say('MINE LAUNCHERS RELOADING (MAX 2 MINES IN FLIGHT).', 'warn');
+  U.pending = { cmd: 'mine', stage: 'dist', dir: d, t: 8 }; sfx.click();
+}
+function launchMine(d, n) {
+  U.pending = null; if (H.mines <= 0) return;
+  H.mines--; const [vx, vy] = VEC[d];
+  U.proj.push({ owner: 'hero', mine: true, x: H.x, y: H.y, vx, vy, sp: 4, dmg: 0, cx: H.x, cy: H.y, life: 15, left: n }); sfx.mine();
+  say(`MINE LAUNCHED ${dirName(d)} FOR ${n} SECTOR${n > 1 ? 'S' : ''}.${n === 1 ? ' WARNING: IT WILL EXPLODE NEXT TO YOU!' : ''}`, n === 1 ? 'warn' : '');
 }
 function selfDestruct() {
   if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); sfx.click(); return; }
@@ -643,7 +658,7 @@ function radBlast(q, x, y) {   // a torpedo detonated by a radiation cloud: hurt
   if (cheb(H.x, H.y, x, y) <= 1) { say('CAUGHT IN A TORPEDO BLAST!', 'bad'); hitHero(25); }
 }
 function updateProj(p, dt) {
-  const q = curQ(); p.life -= dt; if (p.life <= 0) return void U.proj.splice(U.proj.indexOf(p), 1);
+  const q = curQ(); p.life -= dt; if (p.life <= 0) { U.proj.splice(U.proj.indexOf(p), 1); if (p.mine) blastAt(q, Math.max(0, Math.min(SN - 1, Math.round(p.x))), Math.max(0, Math.min(SN - 1, Math.round(p.y)))); return; }
   p.x += p.vx * p.sp * dt; p.y += p.vy * p.sp * dt;
   const rm = () => { const i = U.proj.indexOf(p); if (i >= 0) U.proj.splice(i, 1); };
   const hole = q.anom && q.anom.type === 'hole' ? q.anom : null;   // black hole: bends torpedoes toward it and swallows them
@@ -654,14 +669,19 @@ function updateProj(p, dt) {
   }
   const cx = Math.round(p.x), cy = Math.round(p.y);
   if (cx === p.cx && cy === p.cy) return; p.cx = cx; p.cy = cy;
-  if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) return rm();
+  if (p.mine) p.left--;
+  if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) { rm(); if (p.mine) blastAt(q, Math.max(0, Math.min(SN - 1, cx)), Math.max(0, Math.min(SN - 1, cy))); return; }
   const m = q.mines.find(m => m.x === cx && m.y === cy); if (m) { rm(); return detonate(q, m); }
   const an = q.anom;   // radiation cloud: the torpedo either explodes or is deflected in a random direction
   if (an && an.type === 'radiat' && an.x === cx && an.y === cy) {
     const roll = rnd();
-    if (roll < 1 / 3) { rm(); radBlast(q, cx, cy); return; }
+    if (roll < 1 / 3) { rm(); if (p.mine) blastAt(q, cx, cy); else radBlast(q, cx, cy); return; }
     if (roll < 2 / 3) { const d = randDir(); p.vx = VEC[d][0]; p.vy = VEC[d][1]; p.x = cx; p.y = cy; p.deflected = true; fx(cx, cy, 'spark', .4, .8); sfx.ping(); return; }
     // otherwise: no effect, the torpedo flies straight on
+  }
+  if (p.mine) {   // a launched mine explodes on hitting any ship or obstacle, or when it reaches the end of its run
+    if (blockerAt(q, cx, cy) || p.left <= 0) { rm(); blastAt(q, cx, cy); }
+    return;
   }
   const b = blockerAt(q, cx, cy); if (!b) return;
   if (p.owner === 'hero') {
@@ -879,7 +899,11 @@ function drawSR(t) {
   for (let i = gx0; i < gx1; i++) if (i % 4 === 0) c.fillText(i + 1, i * CELL + 3, gy0 * CELL + 10);
   for (let j = gy0; j < gy1; j++) if (j % 4 === 0 && j) c.fillText(j + 1, gx0 * CELL + 3, j * CELL + 10);
   // direction guide
-  const armed = U.pending && ['phaser', 'torp', 'mine', 'move'].includes(U.pending.cmd);
+  if (U.pending && U.pending.stage === 'dist') {   // mine launch: show the chosen line with distance markers 1-9, 0 (= 10)
+    const [mx, my] = VEC[U.pending.dir]; c.strokeStyle = 'rgba(255,154,77,.4)'; c.setLineDash([4, 5]); c.lineWidth = 1; c.beginPath(); c.moveTo(cx(H.x), cx(H.y)); c.lineTo(cx(H.x + mx * 10), cx(H.y + my * 10)); c.stroke(); c.setLineDash([]);
+    c.fillStyle = '#ffd08a'; c.font = 'bold 11px "Courier New"'; c.textAlign = 'center'; for (let i = 1; i <= 10; i++) c.fillText(i % 10, cx(H.x + mx * i), cx(H.y + my * i) + 4);
+  }
+  const armed = U.pending && !U.pending.stage && ['phaser', 'torp', 'mine', 'move'].includes(U.pending.cmd);
   if (armed) { c.strokeStyle = U.pending.cmd === 'move' ? 'rgba(51,255,102,.35)' : 'rgba(255,154,77,.35)'; c.setLineDash([4, 5]); c.lineWidth = 1;
     for (const d in VEC) { const [vx, vy] = VEC[d]; c.beginPath(); c.moveTo(cx(H.x), cx(H.y)); c.lineTo(cx(H.x) + vx * SW, cx(H.y) + vy * SW); c.stroke();
       const lx = cx(H.x) + vx * 32, ly = cx(H.y) + vy * 32; c.setLineDash([]); c.fillStyle = 'rgba(255,255,255,.75)'; c.font = 'bold 11px "Courier New"'; c.textAlign = 'center'; c.fillText(d, lx, ly + 4); c.setLineDash([4, 5]); } c.setLineDash([]); }
@@ -906,7 +930,7 @@ function drawSR(t) {
   if (H.jump) { c.strokeStyle = `rgba(200,150,255,${.4 + .4 * Math.sin(t * 20)})`; c.lineWidth = 2; c.beginPath(); c.arc(cx(H.x), cx(H.y), 22 + (2 - H.jump.t) * 6, 0, 6.3); c.stroke(); }
   for (const b of U.beams) { const k = b.t / b.dur, col = b.owner === 'hero' ? '79,216,255' : b.owner === 'station' ? '51,255,102' : '255,90,90'; c.strokeStyle = `rgba(${col},${1 - k})`; c.lineWidth = 3 - k * 2; c.shadowColor = `rgb(${col})`; c.shadowBlur = 10;
     c.beginPath(); c.moveTo(cx(b.x1), cx(b.y1)); c.lineTo(cx(b.x2), cx(b.y2)); c.stroke(); c.shadowBlur = 0; }
-  for (const p of U.proj) { const col = p.owner === 'hero' ? '#7fe8ff' : '#ff8a5c'; c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 12; c.beginPath(); c.arc(cx(p.x), cx(p.y), 4, 0, 6.3); c.fill(); c.shadowBlur = 0;
+  for (const p of U.proj) { if (p.mine) { drawMine(c, { owner: p.owner, arm: 0 }, cx(p.x), cx(p.y), t); continue; } const col = p.owner === 'hero' ? '#7fe8ff' : '#ff8a5c'; c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 12; c.beginPath(); c.arc(cx(p.x), cx(p.y), 4, 0, 6.3); c.fill(); c.shadowBlur = 0;
     c.strokeStyle = col; c.globalAlpha = .4; c.lineWidth = 2; c.beginPath(); c.moveTo(cx(p.x), cx(p.y)); c.lineTo(cx(p.x - p.vx * .6), cx(p.y - p.vy * .6)); c.stroke(); c.globalAlpha = 1; }
   for (const f of U.fx) { const k = f.t / f.dur, x = cx(f.x), y = cx(f.y), r = (f.kind === 'big' ? 20 + k * 80 : f.kind === 'jump' ? 10 + k * 50 : 6 + k * 26) * f.size;
     c.globalAlpha = 1 - k; c.fillStyle = f.kind === 'jump' ? '#c08bff' : k < .3 ? '#fff' : '#ffb347'; if (f.kind !== 'spark') { c.beginPath(); c.arc(x, y, r * .5, 0, 6.3); c.fill(); }
@@ -996,12 +1020,13 @@ function updateHUD() {
   else if (H.crippled > 0) p = `SHIP CRIPPLED - SYSTEMS OFFLINE FOR ${H.crippled.toFixed(1)}s. YOU ARE VULNERABLE!`;
   else if (U.jm) p = 'HYPERJUMP: PRESS A NUMBER 1-9 (0 = 10) FOR THE NUMBER OF SECTORS. DIRECTION IS RANDOM - YOU MAY LAND IN ANOTHER QUADRANT. ESC CANCELS.';
   else if (H.jump) p = 'HYPERDRIVE CHARGING...';
-  else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAY MINE: PRESS A DIRECTION (NUMPAD 1-9)', move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
+  else if (U.pending && U.pending.stage === 'dist') p = `MINE ${dirName(U.pending.dir)}: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY SECTORS IT TRAVELS BEFORE EXPLODING. 1 WILL BLAST YOU TOO!`;
+  else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9)', move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S STOPS.`;
   else p = 'READY. M = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   D = DOCK   H = HELP';
   $('prompt').textContent = p;
   $('distv').textContent = H.dist; $('distc').textContent = 'ENERGY COST ' + driveCost(H.dist);
-  $('jnums').style.display = U.jm ? 'grid' : 'none';
+  $('jnums').style.display = (U.jm || (U.pending && U.pending.stage === 'dist')) ? 'grid' : 'none';
 }
 function showOverlay(t, m, b, cb) { $('ovT').textContent = t; $('ovM').textContent = m; $('ovB').textContent = b; $('overlay').style.display = 'flex'; $('ovB').onclick = () => { initAudio(); $('overlay').style.display = 'none'; cb(); }; }
 const HELP = `GOAL: destroy every alien ship hiding in the 8x8 galaxy of quadrants. Each quadrant is 32x32 sectors, so the main screen shows a 16x16 window that follows your ship.
@@ -1017,7 +1042,8 @@ DIRECTIONS use the NUMPAD (or the top-row digits):
 ION DRIVE  set distance with + / - (or the slider), press M, then a direction. Longer trips cost more energy. While moving, press a direction to change course, S to stop (unused energy refunded).
 PHASER (P) + direction: fast, weaker. Max 3 beams at once.
 TORPEDO (T) + direction: slow, powerful. Limited supply, max 2 in flight.
-MINE (L) + direction: lays a mine next to you. Anything entering it - or a beam/torpedo hitting it - blasts all adjacent sectors. Includes you!
+MINE (L) + direction + a number 1-9 (0 = 10): launches a mine that travels that many sectors. It explodes at the end of its run, or as soon as it hits a ship or any obstacle. The blast destroys everything in that sector and all 8 around it - alien ships, rocks and nests, and it damages space stations. A distance of 1 will blast you too! Max 2 mines in flight.
+Alien minelayers still drop static mines that sit in space until something touches them (or a beam or torpedo hits them).
 HYPERJUMP (J) + a number 1-9 (0 = 10): jumps that many sectors in a RANDOM direction after a 2 second spool-up. You may end up in another quadrant. Costs more energy the further you jump.
 SELF DESTRUCT (K): 5 second countdown, then everything in the quadrant is destroyed - including you. Press K again to cancel.
 SPACE pauses. Weapons work while moving.
@@ -1048,6 +1074,10 @@ addEventListener('keydown', e => {
     const m = /^(?:Digit|Numpad)(\d)$/.exec(k);
     if (m) { e.preventDefault(); const n = +m[1] || 10; jumpNumber(n); return; }
   }
+  if (U.pending && U.pending.stage === 'dist') {   // mine launch: a number key chooses the travel distance (0 = 10)
+    const m = /^(?:Digit|Numpad)(\d)$/.exec(k);
+    if (m) { e.preventDefault(); launchMine(U.pending.dir, +m[1] || 10); return; }
+  }
   if (dd) { e.preventDefault(); heroDir(dd); return; }
   switch (k) {
     case 'KeyM': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyL': cmd('mine'); break;
@@ -1065,7 +1095,7 @@ for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () =
 $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
 for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
 $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
-for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); };
+for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); };
 lr.addEventListener('pointerdown', e => {
   initAudio(); if (!U) return; const r = lr.getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / r.width * GN), y = Math.floor((e.clientY - r.top) / r.height * GN);
   const q = Q(x, y), sc = isScanned(x, y), i = sc ? qInfo(q) : q.mem, fmt = i => `${i.al} ALIEN${i.al === 1 ? '' : 'S'}, ${i.st} STARS, ${i.pl} PLANETS, ${i.sn} STATION${i.sn === 1 ? '' : 'S'}.`;
