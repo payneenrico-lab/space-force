@@ -196,7 +196,7 @@ function newAlien(type, q) {
 function newGame() {
   U = { Q: [], t: 0, nextId: 1, kills: 0, aliensLeft: 0, grace: 0, over: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, dist: +$('dist').value };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, dist: +$('dist').value };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
@@ -225,22 +225,39 @@ function blockerAt(q, x, y) {
   if (q.planets.some(p => p.x === x && p.y === y)) return { t: 'planet' };
   return null;
 }
-function trace(q, x, y, vx, vy, range, skipHero) {
+const randDir = () => [1, 2, 3, 4, 6, 7, 8, 9][ri(8)];
+function trace(q, x, y, vx, vy, range, skipHero, rad) {
   let cx = x, cy = y;
   for (let i = 1; i <= range; i++) {
     cx += vx; cy += vy;
     if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) return { ex: cx - vx, ey: cy - vy, hit: null, dist: i - 1 };
+    if (rad && q.anom && q.anom.type === 'radiat' && q.anom.x === cx && q.anom.y === cy) return { ex: cx, ey: cy, hit: { t: 'rad' }, dist: i };
     const b = blockerAt(q, cx, cy); if (b && !(skipHero && b.t === 'hero')) return { ex: cx, ey: cy, hit: b, dist: i };
     const m = q.mines.find(m => m.x === cx && m.y === cy); if (m) return { ex: cx, ey: cy, hit: { t: 'mine', o: m }, dist: i };
   }
   return { ex: cx, ey: cy, hit: null, dist: range };
+}
+// A phaser beam. Passing through a radiation cloud it either detonates in the cloud (50%) or is scattered in a random direction.
+function beamPath(q, x, y, vx, vy, range, skipHero, owner) {
+  let r = trace(q, x, y, vx, vy, range, skipHero, true), sx = x, sy = y, left = range, n = 0;
+  U.beams.push({ x1: sx, y1: sy, x2: r.ex, y2: r.ey, t: 0, dur: .35, owner });
+  while (r.hit && r.hit.t === 'rad' && n++ < 3) {
+    left -= r.dist; sx = r.ex; sy = r.ey;
+    if (rnd() < .5 || left <= 0) { fx(sx, sy, 'boom', .5, .9); sfx.boom(); return { ex: sx, ey: sy, hit: null }; }
+    const d = randDir(); vx = VEC[d][0]; vy = VEC[d][1]; fx(sx, sy, 'spark', .4, .8);
+    r = trace(q, sx, sy, vx, vy, left, skipHero, true);
+    U.beams.push({ x1: sx, y1: sy, x2: r.ex, y2: r.ey, t: 0, dur: .35, owner });
+  }
+  return r;
 }
 const fx = (x, y, kind, dur = .6, size = 1, col) => U.fx.push({ x, y, kind, t: 0, dur, size, col });
 
 // ================================================================ damage / destruction
 function hitHero(d) {
   if (U.over) return;
-  const s = H.shields; if (s >= d) H.shields -= d; else { H.hull -= d - s; H.shields = 0; }
+  const s = H.shields;
+  if (H.crippled > 0) H.hull -= d * 1.5;   // shields are offline while crippled: hits go straight to the hull, and hurt more
+  else if (s >= d) H.shields -= d; else { H.hull -= d - s; H.shields = 0; }
   H.flash = .4; H.regenT = 3; U.shake = .25; sfx.hit();
   if (H.shields < 25 && s >= 25) say('WARNING: SHIELDS CRITICAL!', 'bad');
   if (H.hull <= 0) endGame(false, 'YOUR SHIP HAS BEEN DESTROYED.');
@@ -280,6 +297,7 @@ function cmd(name) {
   if (U.paused) return;
   if (name === 'stop') return stopShip('ION DRIVE DISENGAGED.');
   if (name === 'sd') return selfDestruct();
+  if (H.crippled > 0 && ['move', 'phaser', 'torp', 'mine', 'jump'].includes(name)) return say('SYSTEMS OFFLINE - THE SHIP IS CRIPPLED!', 'bad');
   if (name === 'jump') { if (U.jm) { U.jm = null; return; } enterJump(); return; }
   U.jm = null;
   if (H.jump) { say('HYPERDRIVE SPOOLING - CONTROLS LOCKED.', 'warn'); return; }
@@ -315,8 +333,7 @@ function stopShip(msg) {
 function firePhaser(d) {
   if (U.beams.filter(b => b.owner === 'hero').length >= 3) return say('PHASER BANKS RECHARGING (MAX 3 BEAMS).', 'warn');
   if (!energyUse(12)) return;
-  const q = curQ(), [vx, vy] = VEC[d], r = trace(q, H.x, H.y, vx, vy, 12, true);
-  U.beams.push({ x1: H.x, y1: H.y, x2: r.ex, y2: r.ey, t: 0, dur: .35, owner: 'hero' }); sfx.phaser();
+  const q = curQ(), [vx, vy] = VEC[d], r = beamPath(q, H.x, H.y, vx, vy, 12, true, 'hero'); sfx.phaser();
   if (r.hit) {
     if (r.hit.t === 'alien') damageAlien(r.hit.o, 25);
     else if (r.hit.t === 'mine') detonate(q, r.hit.o);
@@ -353,7 +370,7 @@ function jumpNumber(n) {
 function finishJump() {
   const j = H.jump; H.jump = null;
   if (j.worm) {
-    sfx.jumpGo(); fx(H.x, H.y, 'jump', .6, 1); changeQuadrant(j.qx, j.qy); const p = freeCell(curQ()); H.x = p.x; H.y = p.y;
+    sfx.jumpGo(); fx(H.x, H.y, 'jump', .6, 1); if (j.qx !== H.qx || j.qy !== H.qy) changeQuadrant(j.qx, j.qy); const p = freeCell(curQ()); H.x = p.x; H.y = p.y;
   } else {
     // pick a random direction whose landing sector is inside the galaxy and not blocked
     const gx = H.qx * SN + H.x, gy = H.qy * SN + H.y, lim = GN * SN, dirs = Object.keys(VEC).map(Number).sort(() => rnd() - .5);
@@ -380,13 +397,28 @@ function changeQuadrant(qx, qy) {
 }
 
 // ================================================================ world update
+const CRIPPLE_MIN = 3, CRIPPLE_MAX = 12;   // seconds
+function radiationEffect() {   // entering a radiation cloud triggers one random effect
+  sfx.alert(); const k = ri(6);
+  if (k === 0) {
+    const same = rnd() < .4; say('RADIATION CLOUD! HYPERDRIVE SCRAMBLED - YOU ARE FLUNG ACROSS SPACE...', 'warn'); stopShip(null);
+    H.jump = { t: .6, worm: true, qx: same ? H.qx : ri(GN), qy: same ? H.qy : ri(GN) }; sfx.jumpUp();
+  } else if (k === 1) { const n = 200 + ri(500); H.energy = Math.max(0, H.energy - n); say(`RADIATION CLOUD! ENERGY DRAINED (-${n}).`, 'bad'); }
+  else if (k === 2) { const n = 20 + ri(41); H.shields = Math.max(0, H.shields - n); H.regenT = 3; H.flash = .3; say(`RADIATION CLOUD! SHIELDS DRAINED (-${n}%).`, 'bad'); }
+  else if (k === 3) { const n = 300 + ri(701); H.energy = Math.min(MAXE, H.energy + n); say(`RADIATION CLOUD! POWER SURGE - ENERGY BOOSTED (+${n}).`, 'good'); sfx.supply(); }
+  else if (k === 4) { H.shields = 100; say('RADIATION CLOUD! SHIELDS FULLY RESTORED.', 'good'); sfx.supply(); }
+  else {
+    const s = CRIPPLE_MIN + rnd() * (CRIPPLE_MAX - CRIPPLE_MIN); H.crippled = s; stopShip(null); U.pending = null;
+    say(`RADIATION CLOUD! SHIP CRIPPLED FOR ${s.toFixed(1)}s - DRIVE, WEAPONS AND SHIELDS OFFLINE!`, 'bad');
+  }
+}
 function checkSector() {
   const q = curQ(), m = q.mines.find(m => m.x === H.x && m.y === H.y && m.arm <= 0);
   if (m) { detonate(q, m); return; }
   const an = q.anom; if (!an || an.x !== H.x || an.y !== H.y) return;
   an.known = true;
   if (an.type === 'storm') { H.shields = Math.max(0, H.shields - 45); H.flash = .5; U.shake = .4; say('ION STORM! SHIELDS SEVERELY DRAINED.', 'bad'); sfx.hit(); }
-  else if (an.type === 'radiat') { H.energy = Math.max(0, H.energy - 350); say('RADIATION CLOUD! ENERGY RESERVES DRAINED.', 'bad'); sfx.alert(); }
+  else if (an.type === 'radiat') radiationEffect();
   else if (an.type === 'worm') { say('WORMHOLE! YOU ARE BEING TORN THROUGH SPACE...', 'warn'); stopShip(null); H.jump = { t: .6, worm: true, qx: ri(GN), qy: ri(GN) }; sfx.jumpUp(); }
   else if (an.type === 'depot') {
     H.torps = Math.min(10, H.torps + 4); H.mines = Math.min(6, H.mines + 3); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
@@ -419,7 +451,8 @@ function update(dt) {
   const q = curQ(); scanAround();
   // energy / shields
   H.energy = Math.min(MAXE, H.energy + 3 * dt); H.flash = Math.max(0, H.flash - dt); H.regenT = Math.max(0, H.regenT - dt);
-  if (H.shields < 100 && H.regenT <= 0 && H.energy > 30) { const r = 1.4 * Math.min(1, H.energy / 500) * dt; H.shields = Math.min(100, H.shields + r); H.energy -= r * 1.2; }
+  if (H.crippled > 0) { H.crippled -= dt; if (H.crippled <= 0) { H.crippled = 0; say('SYSTEMS BACK ONLINE.', 'good'); sfx.supply(); } }
+  if (H.shields < 100 && H.regenT <= 0 && H.energy > 30 && !(H.crippled > 0)) { const r = 1.4 * Math.min(1, H.energy / 500) * dt; H.shields = Math.min(100, H.shields + r); H.energy -= r * 1.2; }
   // hero motion
   if (H.moving) { H.stepT -= dt; while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); } }
   if (H.jump && (H.jump.t -= dt) <= 0) finishJump();
@@ -441,6 +474,11 @@ function update(dt) {
   for (const b of U.beams) b.t += dt; U.beams = U.beams.filter(b => b.t < b.dur);
   for (const f of U.fx) f.t += dt; U.fx = U.fx.filter(f => f.t < f.dur);
 }
+function radBlast(q, x, y) {   // a torpedo detonated by a radiation cloud: hurts anything adjacent
+  fx(x, y, 'boom', .7, 1.3); sfx.boom();
+  for (const a of q.aliens.slice()) if (cheb(a.x, a.y, x, y) <= 1) damageAlien(a, 40);
+  if (cheb(H.x, H.y, x, y) <= 1) { say('CAUGHT IN A TORPEDO BLAST!', 'bad'); hitHero(25); }
+}
 function updateProj(p, dt) {
   const q = curQ(); p.life -= dt; if (p.life <= 0) return void U.proj.splice(U.proj.indexOf(p), 1);
   p.x += p.vx * p.sp * dt; p.y += p.vy * p.sp * dt;
@@ -449,6 +487,11 @@ function updateProj(p, dt) {
   const rm = () => { const i = U.proj.indexOf(p); if (i >= 0) U.proj.splice(i, 1); };
   if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) return rm();
   const m = q.mines.find(m => m.x === cx && m.y === cy); if (m) { rm(); return detonate(q, m); }
+  const an = q.anom;   // radiation cloud: the torpedo either explodes or is deflected in a random direction
+  if (an && an.type === 'radiat' && an.x === cx && an.y === cy) {
+    if (rnd() < .5) { rm(); radBlast(q, cx, cy); return; }
+    const d = randDir(); p.vx = VEC[d][0]; p.vy = VEC[d][1]; p.x = cx; p.y = cy; fx(cx, cy, 'spark', .4, .8); sfx.ping(); return;
+  }
   const b = blockerAt(q, cx, cy); if (!b) return;
   if (p.owner === 'hero') {
     if (b.t === 'hero') return;
@@ -471,7 +514,7 @@ function updateAlien(a, dt) {
       const ch = a.charge; a.charge = null;
       if (!grace && !U.over) {
         if (ch.kind === 'phaser') {
-          const r = trace(q, a.x, a.y, ch.vx, ch.vy, 12, false); U.beams.push({ x1: a.x, y1: a.y, x2: r.ex, y2: r.ey, t: 0, dur: .3, owner: 'alien' }); sfx.aPhaser();
+          const r = beamPath(q, a.x, a.y, ch.vx, ch.vy, 12, false, 'alien'); sfx.aPhaser();
           if (r.hit && r.hit.t === 'hero') hitHero(T.ph); else if (r.hit && r.hit.t === 'mine') detonate(q, r.hit.o);
         } else { U.proj.push({ owner: 'alien', x: a.x, y: a.y, vx: ch.vx, vy: ch.vy, sp: 5.5, dmg: 35, cx: a.x, cy: a.y, life: 4 }); sfx.torp(); }
       }
@@ -609,6 +652,7 @@ function drawSR(t) {
     if (a.charge) { c.strokeStyle = 'rgba(255,80,80,.55)'; c.lineWidth = 1; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(cx(a.x), cx(a.y)); c.lineTo(cx(a.x) + a.charge.vx * SW, cx(a.y) + a.charge.vy * SW); c.stroke(); c.setLineDash([]); }
   }
   if (!U.over || H.hull > 0) drawHero(c, cx(H.x), cx(H.y), Math.atan2(VEC[H.dir][1], VEC[H.dir][0]), H.flash > 0);
+  if (H.crippled > 0) { c.fillStyle = '#ffe14d'; for (let i = 0; i < 6; i++) c.fillRect(cx(H.x) + (rnd() - .5) * 40, cx(H.y) + (rnd() - .5) * 40, 2, 2); }
   if (H.jump) { c.strokeStyle = `rgba(200,150,255,${.4 + .4 * Math.sin(t * 20)})`; c.lineWidth = 2; c.beginPath(); c.arc(cx(H.x), cx(H.y), 22 + (2 - H.jump.t) * 6, 0, 6.3); c.stroke(); }
   for (const b of U.beams) { const k = b.t / b.dur, col = b.owner === 'hero' ? '79,216,255' : '255,90,90'; c.strokeStyle = `rgba(${col},${1 - k})`; c.lineWidth = 3 - k * 2; c.shadowColor = `rgb(${col})`; c.shadowBlur = 10;
     c.beginPath(); c.moveTo(cx(b.x1), cx(b.y1)); c.lineTo(cx(b.x2), cx(b.y2)); c.stroke(); c.shadowBlur = 0; }
@@ -618,6 +662,7 @@ function drawSR(t) {
     c.globalAlpha = 1 - k; c.fillStyle = f.kind === 'jump' ? '#c08bff' : k < .3 ? '#fff' : '#ffb347'; if (f.kind !== 'spark') { c.beginPath(); c.arc(x, y, r * .5, 0, 6.3); c.fill(); }
     c.strokeStyle = f.kind === 'jump' ? '#e0c0ff' : '#ff6a3a'; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r, 0, 6.3); c.stroke(); c.globalAlpha = 1; }
   c.restore(); drawMini(t, cam);
+  if (H.crippled > 0) { c.fillStyle = '#ff4d5e'; c.font = 'bold 14px "Courier New"'; c.textAlign = 'center'; c.fillText('SYSTEMS CRIPPLED ' + H.crippled.toFixed(1) + 's', SW / 2, 50); }
   if (U.jm) { c.fillStyle = '#c08bff'; c.font = 'bold 13px "Courier New"'; c.textAlign = 'center'; c.fillText('HYPERJUMP: HOW MANY SECTORS? (1-9, 0 = 10)', SW / 2, 26); }
   if (H.flash > 0) { c.fillStyle = `rgba(255,40,40,${H.flash * .35})`; c.fillRect(0, 0, SW, SW); }
   c.fillStyle = 'rgba(79,216,255,.7)'; c.font = 'bold 10px "Courier New"'; c.textAlign = 'right'; c.fillText(`QUADRANT ${H.qx + 1},${H.qy + 1}`, SW - 6, SW - 6);
@@ -690,6 +735,7 @@ function updateHUD() {
   $('sTorp').textContent = H.torps; $('sMine').textContent = H.mines; $('sAl').textContent = U.aliensLeft; $('sPos').textContent = `${H.qx + 1},${H.qy + 1} / ${H.x + 1},${H.y + 1}`;
   let p = '';
   if (U.sd) p = `SELF-DESTRUCT IN ${Math.ceil(U.sd.t)}... PRESS K AGAIN TO CANCEL.`;
+  else if (H.crippled > 0) p = `SHIP CRIPPLED - SYSTEMS OFFLINE FOR ${H.crippled.toFixed(1)}s. YOU ARE VULNERABLE!`;
   else if (U.jm) p = 'HYPERJUMP: PRESS A NUMBER 1-9 (0 = 10) FOR THE NUMBER OF SECTORS. DIRECTION IS RANDOM - YOU MAY LAND IN ANOTHER QUADRANT. ESC CANCELS.';
   else if (H.jump) p = 'HYPERDRIVE CHARGING...';
   else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAY MINE: PRESS A DIRECTION (NUMPAD 1-9)', move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
@@ -719,7 +765,8 @@ SELF DESTRUCT (K): 5 second countdown, then everything in the quadrant is destro
 SPACE pauses. Weapons work while moving.
 
 DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines. Stars and planets block movement and shots.
-ANOMALIES: ion storm (drains shields), radiation cloud (drains energy), wormhole (random teleport), supply depot (restocks you).`;
+ANOMALIES: ion storm (drains shields), wormhole (random teleport), supply depot (restocks you).
+RADIATION CLOUD: flying into one triggers ONE random effect - a scrambled hyperjump to a random sector or quadrant, an energy drain, a shield drain, an energy surge, fully restored shields, or the ship is CRIPPLED for up to 12 seconds (no drive, weapons or shields - enemy hits go straight to the hull). Torpedoes entering a cloud either explode (hurting anything adjacent) or are deflected in a random direction; phaser beams either fizzle out or scatter in a random direction.`;
 function showHelp() { if (U) U.paused = true; engineOff(); showOverlay('CONTROLS', HELP, 'CONTINUE', () => { if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); } }); }
 
 // ================================================================ input
