@@ -580,8 +580,11 @@ function dock() {
   const s = q.stations.find(s => cheb(s.x, s.y, H.x, H.y) <= 1);
   if (!s) return say('NO STATION IN RANGE. STOP NEXT TO A SPACE STATION, THEN PRESS D.', 'warn');
   if (H.moving || H.jump) return say('STOP THE SHIP BEFORE DOCKING.', 'warn');
+  if (stationUnderAttack(q, s)) return say('THE STATION IS UNDER ATTACK - DOCKING DENIED! DESTROY THE ATTACKING SHIPS FIRST.', 'bad');
   U.pending = null; H.docking = { t: 3, s, done: false }; sfx.dockUp(); say('DOCKING... THE STATION\'S SHIELDS NOW PROTECT YOUR SHIP. WEAPONS OFFLINE WHILE DOCKED.', 'good');
 }
+// A station counts as under attack if it was hit in the last few seconds, or any alien ship is currently targeting it.
+function stationUnderAttack(q, s) { return s.regenT > 0 || q.aliens.some(a => a.tgt === s); }
 function undock() { if (!H.docking) return; H.docking = null; sfx.click(); say('UNDOCKED. WEAPONS BACK ONLINE.', 'good'); }
 function finishDock() {
   const d = H.docking, s = d.s; d.done = true; d.t = 0;
@@ -911,7 +914,7 @@ function drawSR(t) {
   c.restore(); drawMini(t, cam);
   if (H.crippled > 0) { c.fillStyle = '#ff4d5e'; c.font = 'bold 14px "Courier New"'; c.textAlign = 'center'; c.fillText('SYSTEMS CRIPPLED ' + H.crippled.toFixed(1) + 's', SW / 2, 50); }
   if (H.docking) { c.fillStyle = '#33ff66'; c.font = 'bold 14px "Courier New"'; c.textAlign = 'center'; c.fillText(H.docking.done ? 'DOCKED - WEAPONS OFFLINE - PRESS D TO UNDOCK' : 'DOCKING... ' + H.docking.t.toFixed(1) + 's', SW / 2, 26); }
-  else if (q.stations.some(s => cheb(s.x, s.y, H.x, H.y) <= 1) && !H.moving) { c.fillStyle = '#7fe8ff'; c.font = 'bold 12px "Courier New"'; c.textAlign = 'center'; c.fillText('STATION IN RANGE - PRESS D TO DOCK', SW / 2, 26); }
+  else { const ns = q.stations.find(s => cheb(s.x, s.y, H.x, H.y) <= 1); if (ns && !H.moving) { const atk = stationUnderAttack(q, ns); c.fillStyle = atk ? '#ff4d5e' : '#7fe8ff'; c.font = 'bold 12px "Courier New"'; c.textAlign = 'center'; c.fillText(atk ? 'STATION UNDER ATTACK - CANNOT DOCK' : 'STATION IN RANGE - PRESS D TO DOCK', SW / 2, 26); } }
   if (U.jm) { c.fillStyle = '#c08bff'; c.font = 'bold 13px "Courier New"'; c.textAlign = 'center'; c.fillText('HYPERJUMP: HOW MANY SECTORS? (1-9, 0 = 10)', SW / 2, 26); }
   if (H.flash > 0) { c.fillStyle = `rgba(255,40,40,${H.flash * .35})`; c.fillRect(0, 0, SW, SW); }
   c.fillStyle = 'rgba(79,216,255,.7)'; c.font = 'bold 10px "Courier New"'; c.textAlign = 'right'; c.fillText(`QUADRANT ${H.qx + 1},${H.qy + 1}`, SW - 6, SW - 6);
@@ -1021,7 +1024,7 @@ SPACE pauses. Weapons work while moving.
 
 DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines. Stars and planets block movement and shots.
 SPACE STATIONS (1-4 in the galaxy, shown as a ring icon on the long range scanner): stop in a sector NEXT TO a station and press D. After 3 seconds your shields, hull, energy, torpedoes and mines are all restored to 100% and any crippling is repaired. A station then needs 45 seconds to restock. You STAY docked until you press D again or fly away, and your weapons are offline while docked.
- A docked ship is protected by the station's shields (400 - four times yours): every hit meant for you drains the station instead. Aliens attack stations too, especially one you are docked at. Stations fire back at aligned aliens, but only every few seconds. If the station's shields run out it is destroyed, and a docked ship goes with it - undock in time! Shields recover slowly when the station is not under fire. Stations block movement and shots.
+ A docked ship is protected by the station's shields (400 - four times yours): every hit meant for you drains the station instead. Aliens attack stations too, especially one you are docked at. Stations fire back at aligned aliens, but only every few seconds. If the station's shields run out it is destroyed, and a docked ship goes with it - undock in time! Shields recover slowly when the station is not under fire. You cannot dock at a station that is under attack - destroy the attacking ships first. Stations block movement and shots.
 
 ANOMALIES (each is hidden as ??? until you fly close):
  ION STORM - drains your shields.   WORMHOLE - random teleport.   SUPPLY DEPOT - restocks you (one use).
