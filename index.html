@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invasion Force</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#05060f">
+<style>
+  :root { --bg:#04050d; --panel:#0a0f22; --line:#1e3a5f; --cyan:#4fd8ff; --green:#33ff66; --red:#ff4d5e; --amber:#ffc447; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: #cfe8ff; font: 13px/1.35 "Courier New", monospace;
+               -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  #app { max-width: 1180px; margin: 0 auto; padding: 8px calc(8px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+         display: grid; gap: 8px; grid-template-columns: 1fr; }
+  @media (min-width: 980px) { #app { grid-template-columns: minmax(0, 1.25fr) minmax(340px, 1fr); align-items: start; } }
+  h1 { margin: 0; font-size: 15px; letter-spacing: 3px; color: var(--cyan); grid-column: 1 / -1; display: flex; justify-content: space-between; }
+  h1 small { color: #6f8fb5; letter-spacing: 1px; font-weight: normal; }
+  #stage { position: relative; }
+  canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #000; touch-action: manipulation; }
+  #sr { aspect-ratio: 1; } #lr { aspect-ratio: 1; max-width: 420px; margin: 0 auto; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin-top: 8px; }
+  .lbl { font-size: 10px; color: #6f8fb5; letter-spacing: 1px; }
+  .bars { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .bar { height: 10px; background: #050914; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; margin: 2px 0 1px; }
+  .bar i { display: block; height: 100%; width: 100%; }
+  #bS i { background: linear-gradient(90deg,#1f7bff,#4fd8ff); } #bH i { background: linear-gradient(90deg,#c22,#ff8a4d); } #bE i { background: linear-gradient(90deg,#b8860b,#ffd54d); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; text-align: center; }
+  .stats div { background: #060a1a; border: 1px solid var(--line); border-radius: 4px; padding: 3px 0; }
+  .stats b { display: block; font-size: 15px; color: var(--amber); }
+  #prompt { margin-top: 6px; min-height: 34px; padding: 6px 8px; background: #1a1404; border: 1px solid #5a4510; border-radius: 4px; color: var(--amber); }
+  #log { height: 150px; overflow-y: auto; background: #010a03; border: 1px solid #0e3a1a; border-radius: 6px; padding: 6px 8px; color: var(--green);
+         text-shadow: 0 0 4px rgba(51,255,102,.45); -webkit-user-select: text; user-select: text; }
+  #log p { margin: 0 0 2px; } #log .bad { color: #ff7a86; text-shadow: none; } #log .good { color: #7fe8ff; text-shadow: none; } #log .warn { color: var(--amber); text-shadow: none; }
+  #cmds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+  button { font: bold 12px "Courier New", monospace; color: #dff4ff; background: #12305a; border: 1px solid var(--cyan); border-radius: 5px; padding: 10px 2px; cursor: pointer; touch-action: manipulation; }
+  button:hover:not(:disabled) { background: #1a4680; } button:disabled { opacity: .35; }
+  button small { display: block; font-weight: normal; font-size: 9px; opacity: .7; }
+  button.wp { border-color: #ff9a4d; background: #4a2410; } button.go { border-color: var(--green); background: #0f4a2a; color: var(--green); } button.dg { border-color: var(--red); background: #4a1420; color: #ffb3bb; }
+  #jnums { display: none; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 8px; } #jnums button { padding: 10px 0; border-color: #c08bff; background: #2a1650; }
+  #ctl { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin-top: 8px; }
+  #compass { display: grid; grid-template-columns: repeat(3, 46px); gap: 4px; }
+  #compass button { padding: 0; height: 46px; font-size: 18px; } #compass .c { border-color: var(--red); color: #ffb3bb; background: #4a1420; font-size: 13px; }
+  #dist { width: 100%; } .dl { display: flex; justify-content: space-between; }
+  #overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(2,4,12,.9); border-radius: 6px; padding: 14px; overflow-y: auto; }
+  #overlay .card { max-width: 520px; } #overlay h2 { margin: 0 0 8px; letter-spacing: 3px; color: var(--cyan); }
+  #overlay pre { margin: 0 0 10px; white-space: pre-wrap; font: 12px/1.4 "Courier New", monospace; color: var(--green); text-align: left; }
+  #overlay button { padding: 12px 22px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>INVASION FORCE <small>REAL-TIME QUADRANT COMBAT</small></h1>
+  <div>
+    <div id="stage">
+      <canvas id="sr" width="1408" height="1408"></canvas>
+      <div id="overlay"><div class="card"><h2 id="ovT"></h2><pre id="ovM"></pre><button id="ovB" class="go">LAUNCH</button></div></div>
+    </div>
+    <div id="ctl" class="box">
+      <div>
+        <div class="dl"><span class="lbl">ION DRIVE DISTANCE</span><b id="distv">6</b></div>
+        <input id="dist" type="range" min="1" max="40" value="8">
+        <div class="lbl" id="distc"></div>
+      </div>
+      <div id="compass">
+        <button data-d="7">&#8598;</button><button data-d="8">&#8593;</button><button data-d="9">&#8599;</button>
+        <button data-d="4">&#8592;</button><button class="c" id="cStop">STOP</button><button data-d="6">&#8594;</button>
+        <button data-d="1">&#8601;</button><button data-d="2">&#8595;</button><button data-d="3">&#8600;</button>
+      </div>
+    </div>
+    <div id="jnums"><button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button><button data-n="4">4</button><button data-n="5">5</button><button data-n="6">6</button><button data-n="7">7</button><button data-n="8">8</button><button data-n="9">9</button><button data-n="10">10</button></div>
+    <div id="cmds">
+      <button id="cMove" class="go">ION DRIVE<small>M</small></button>
+      <button id="cPhaser" class="wp">PHASER<small>P</small></button>
+      <button id="cTorp" class="wp">TORPEDO<small>T</small></button>
+      <button id="cMine" class="wp">LAY MINE<small>L</small></button>
+      <button id="cJump">HYPERJUMP<small>J</small></button>
+      <button id="cSD" class="dg">SELF DESTRUCT<small>K</small></button>
+      <button id="cScan">SCANNER<small>R</small></button>
+      <button id="cPause">PAUSE<small>SPACE</small></button>
+      <button id="cHelp">HELP<small>H</small></button>
+    </div>
+  </div>
+  <div>
+    <div class="lbl" style="text-align:center;margin-bottom:2px">LONG RANGE SCANNER &mdash; ADJACENT QUADRANTS (DASHED BOX)</div>
+    <canvas id="lr" width="832" height="832"></canvas>
+    <div class="box">
+      <div class="bars">
+        <div id="bS"><span class="lbl">SHIELDS <b id="tS"></b></span><div class="bar"><i></i></div></div>
+        <div id="bH"><span class="lbl">HULL <b id="tH"></b></span><div class="bar"><i></i></div></div>
+        <div id="bE"><span class="lbl">ENERGY <b id="tE"></b></span><div class="bar"><i></i></div></div>
+      </div>
+      <div class="stats">
+        <div><b id="sTorp">10</b><span class="lbl">TORPEDOES</span></div>
+        <div><b id="sMine">6</b><span class="lbl">MINES</span></div>
+        <div><b id="sAl">0</b><span class="lbl">ALIENS LEFT</span></div>
+        <div><b id="sPos">-</b><span class="lbl">Q / SECTOR</span></div>
+      </div>
+      <div id="prompt">READY.</div>
+    </div>
+    <div id="log" class="box" style="margin-top:8px"></div>
+  </div>
+</div>
+<script>
+"use strict";
+// ================================================================ constants
+const GN = 8, SN = 32, VIEW = 16, CELL = 44, SW = VIEW * CELL, GC = 52, GW = GN * GC;
+const $ = id => document.getElementById(id);
+const sr = $('sr'), c = sr.getContext('2d'), lr = $('lr'), g = lr.getContext('2d');
+c.setTransform(2, 0, 0, 2, 0, 0); g.setTransform(2, 0, 0, 2, 0, 0);
+const rnd = Math.random, ri = n => rnd() * n | 0, cheb = (a, b, c2, d) => Math.max(Math.abs(a - c2), Math.abs(b - d));
+const VEC = { 7: [-1, -1], 8: [0, -1], 9: [1, -1], 4: [-1, 0], 6: [1, 0], 1: [-1, 1], 2: [0, 1], 3: [1, 1] };
+const MAXE = 2000, STEP = 0.22;
+const ATYPES = {
+  scout:      { name: 'SCOUT',        hp: 40,  step: .55, pref: 4, ph: 8,  pcd: 2.2, torp: 0, mine: 0, cloak: 0, col: '#7dff7d' },
+  raider:     { name: 'RAIDER',       hp: 80,  step: .9,  pref: 5, ph: 10, pcd: 2.6, torp: 0, mine: 1, cloak: 0, col: '#ffb347' },
+  cruiser:    { name: 'CRUISER',      hp: 140, step: 1.1, pref: 6, ph: 12, pcd: 2.8, torp: 1, tcd: 7,   mine: 0, cloak: 0, col: '#ff6a6a' },
+  stealth:    { name: 'STEALTH SHIP', hp: 100, step: .95, pref: 5, ph: 12, pcd: 2.6, torp: 1, tcd: 8,   mine: 0, cloak: 1, col: '#c08bff' },
+  battleship: { name: 'BATTLESHIP',   hp: 260, step: 1.4, pref: 6, ph: 15, pcd: 2.2, torp: 1, tcd: 5.5, mine: 1, cloak: 0, col: '#ff3b7a' },
+};
+const ANOM = {
+  storm:   { name: 'ION STORM',        col: '#7fb0ff' },
+  radiat:  { name: 'RADIATION CLOUD',  col: '#8aff5a' },
+  worm:    { name: 'WORMHOLE',         col: '#c08bff' },
+  depot:   { name: 'SUPPLY DEPOT',     col: '#ffd54d' },
+};
+
+// ================================================================ audio (synthesized)
+let ac = null, master = null, noiseBuf = null, soundOn = true, eng = null, lastPh = 0;
+function initAudio() {
+  if (ac) { if (ac.state !== 'running') ac.resume(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  ac = new AC(); master = ac.createGain(); master.gain.value = .4; master.connect(ac.destination);
+  noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+  const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = rnd() * 2 - 1;
+}
+function tone(o) {
+  if (!ac || !soundOn) return; const t = ac.currentTime + (o.delay || 0), dur = o.dur;
+  const osc = ac.createOscillator(), gn = ac.createGain(); osc.type = o.type || 'square';
+  osc.frequency.setValueAtTime(o.f0, t); if (o.f1) osc.frequency.exponentialRampToValueAtTime(o.f1, t + dur);
+  gn.gain.setValueAtTime(o.vol ?? .2, t); gn.gain.exponentialRampToValueAtTime(.001, t + dur);
+  osc.connect(gn); gn.connect(master); osc.start(t); osc.stop(t + dur + .02);
+}
+function noise(o) {
+  if (!ac || !soundOn) return; const t = ac.currentTime + (o.delay || 0), dur = o.dur;
+  const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  const f = ac.createBiquadFilter(); f.type = o.type || 'lowpass';
+  f.frequency.setValueAtTime(o.f0, t); f.frequency.exponentialRampToValueAtTime(o.f1, t + dur);
+  const gn = ac.createGain(); gn.gain.setValueAtTime(o.vol, t); gn.gain.exponentialRampToValueAtTime(.001, t + dur);
+  s.connect(f); f.connect(gn); gn.connect(master); s.start(t, rnd()); s.stop(t + dur + .02);
+}
+const arp = (fs, step, type = 'square', vol = .2, dur = .12) => fs.forEach((f, i) => tone({ type, f0: f, f1: f * 1.002, dur, vol, delay: i * step }));
+const sfx = {
+  phaser()  { const n = performance.now(); if (n - lastPh < 40) return; lastPh = n; tone({ type: 'sawtooth', f0: 1800, f1: 400, dur: .22, vol: .12 }); },
+  aPhaser() { tone({ type: 'square', f0: 700, f1: 160, dur: .3, vol: .11 }); },
+  torp()    { noise({ dur: .5, vol: .25, f0: 500, f1: 3000, type: 'bandpass' }); tone({ type: 'sine', f0: 200, f1: 700, dur: .4, vol: .15 }); },
+  boom()    { noise({ dur: .5, vol: .5, f0: 4000, f1: 120 }); tone({ type: 'sawtooth', f0: 170, f1: 30, dur: .45, vol: .22 }); },
+  big()     { noise({ dur: 1.4, vol: .8, f0: 5000, f1: 60 }); tone({ type: 'sawtooth', f0: 120, f1: 20, dur: 1.3, vol: .35 }); },
+  hit()     { tone({ type: 'square', f0: 140, f1: 50, dur: .25, vol: .3 }); noise({ dur: .2, vol: .3, f0: 1500, f1: 200 }); },
+  mine()    { arp([880, 660], .07, 'triangle', .25, .1); },
+  jumpUp()  { tone({ type: 'sawtooth', f0: 100, f1: 1400, dur: 2, vol: .16 }); },
+  jumpGo()  { noise({ dur: .8, vol: .5, f0: 200, f1: 6000, type: 'bandpass' }); tone({ type: 'sine', f0: 1600, f1: 60, dur: .7, vol: .3 }); },
+  cloak()   { noise({ dur: .6, vol: .18, f0: 3000, f1: 300, type: 'bandpass' }); },
+  decloak() { noise({ dur: .6, vol: .18, f0: 300, f1: 3000, type: 'bandpass' }); },
+  ping()    { arp([1200, 1600], .08, 'sine', .25, .15); },
+  alert()   { arp([880, 620, 880, 620], .16, 'sawtooth', .16, .14); },
+  supply()  { arp([523, 659, 784, 1047], .07, 'triangle', .3, .12); },
+  beep(f = 900) { tone({ f0: f, f1: f, dur: .09, vol: .22 }); },
+  click()   { tone({ f0: 900, f1: 700, dur: .04, vol: .1 }); },
+  win()     { arp([392, 523, 659, 784, 659, 784, 1047, 1319], .13, 'square', .2, .2); },
+  lose()    { arp([392, 349, 311, 262, 220, 165], .3, 'triangle', .35, .4); },
+};
+function engineOn() {
+  if (!ac || eng) return;
+  const o = ac.createOscillator(), l = ac.createOscillator(), lg = ac.createGain(), f = ac.createBiquadFilter(), gn = ac.createGain();
+  o.type = 'sawtooth'; o.frequency.value = 58; l.frequency.value = 6; lg.gain.value = 5; f.type = 'lowpass'; f.frequency.value = 260; gn.gain.value = soundOn ? .12 : 0;
+  l.connect(lg); lg.connect(o.frequency); o.connect(f); f.connect(gn); gn.connect(master); o.start(); l.start(); eng = { o, l };
+}
+function engineOff() { if (!eng) return; try { eng.o.stop(); eng.l.stop(); } catch (e) {} eng = null; }
+
+// ================================================================ universe
+let U = null, H = null;
+const Q = (x, y) => U.Q[y][x], curQ = () => Q(H.qx, H.qy);
+function occupied(q, x, y) {
+  return q.stars.some(s => s.x === x && s.y === y) || q.planets.some(p => p.x === x && p.y === y) || q.aliens.some(a => a.x === x && a.y === y) ||
+    (q.anom && q.anom.x === x && q.anom.y === y) || (q === curQ() && H && H.x === x && H.y === y);
+}
+function freeCell(q) { for (let i = 0; i < 400; i++) { const x = ri(SN), y = ri(SN); if (!occupied(q, x, y)) return { x, y }; } return { x: 0, y: 0 }; }
+function newAlien(type, q) {
+  const p = freeCell(q), T = ATYPES[type];
+  const a = { id: U.nextId++, type, hp: T.hp, x: p.x, y: p.y, stepT: 1 + rnd(), pcd: 1 + rnd() * 2, tcd: 3 + rnd() * 4, mcd: 4 + rnd() * 5, charge: null,
+    cloaked: !!T.cloak, cloakT: 3 + rnd() * 3, vis: T.cloak ? 0 : 1, flash: 0, dOff: [0, 0], dT: 0, ang: 0 };
+  q.aliens.push(a);
+}
+function newGame() {
+  U = { Q: [], t: 0, nextId: 1, kills: 0, aliensLeft: 0, grace: 0, over: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0 };
+  for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], anom: null, visited: false, hue: ri(360) }; }
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, dist: +$('dist').value };
+  for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
+    const q = Q(x, y);
+    for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
+    for (let i = 2 + ri(7); i > 0; i--) { const p = freeCell(q); q.planets.push({ x: p.x, y: p.y, hue: ri(360), ring: rnd() < .3 }); }
+    if (rnd() < .5) { const p = freeCell(q); q.anom = { x: p.x, y: p.y, type: Object.keys(ANOM)[ri(4)], known: false }; }
+  }
+  const hp = freeCell(curQ()); H.x = hp.x; H.y = hp.y; curQ().visited = true;
+  const total = 16 + ri(13), pool = ['scout', 'scout', 'scout', 'raider', 'raider', 'cruiser', 'cruiser', 'cruiser', 'stealth', 'stealth', 'battleship'];
+  for (let i = 0; i < total; i++) {
+    let q; do { q = Q(ri(GN), ri(GN)); } while (q === curQ() || q.aliens.length >= 5);
+    newAlien(pool[ri(pool.length)], q);
+  }
+  U.aliensLeft = total; U.grace = 1.5;
+  $('log').innerHTML = '';
+  say(`MISSION: DESTROY ALL ${total} ALIEN SHIPS IN THE GALAXY.`, 'warn');
+  say(`YOU ARE IN QUADRANT ${H.qx + 1},${H.qy + 1}. PRESS H FOR CONTROLS.`);
+}
+function say(m, cls = '') {
+  const l = $('log'), p = document.createElement('p'); if (cls) p.className = cls; p.textContent = '> ' + m; l.appendChild(p);
+  while (l.children.length > 60) l.removeChild(l.firstChild); l.scrollTop = l.scrollHeight;
+}
+function blockerAt(q, x, y) {
+  if (q === curQ() && H.x === x && H.y === y) return { t: 'hero' };
+  const a = q.aliens.find(a => a.x === x && a.y === y); if (a) return { t: 'alien', o: a };
+  if (q.stars.some(s => s.x === x && s.y === y)) return { t: 'star' };
+  if (q.planets.some(p => p.x === x && p.y === y)) return { t: 'planet' };
+  return null;
+}
+function trace(q, x, y, vx, vy, range, skipHero) {
+  let cx = x, cy = y;
+  for (let i = 1; i <= range; i++) {
+    cx += vx; cy += vy;
+    if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) return { ex: cx - vx, ey: cy - vy, hit: null, dist: i - 1 };
+    const b = blockerAt(q, cx, cy); if (b && !(skipHero && b.t === 'hero')) return { ex: cx, ey: cy, hit: b, dist: i };
+    const m = q.mines.find(m => m.x === cx && m.y === cy); if (m) return { ex: cx, ey: cy, hit: { t: 'mine', o: m }, dist: i };
+  }
+  return { ex: cx, ey: cy, hit: null, dist: range };
+}
+const fx = (x, y, kind, dur = .6, size = 1, col) => U.fx.push({ x, y, kind, t: 0, dur, size, col });
+
+// ================================================================ damage / destruction
+function hitHero(d) {
+  if (U.over) return;
+  const s = H.shields; if (s >= d) H.shields -= d; else { H.hull -= d - s; H.shields = 0; }
+  H.flash = .4; H.regenT = 3; U.shake = .25; sfx.hit();
+  if (H.shields < 25 && s >= 25) say('WARNING: SHIELDS CRITICAL!', 'bad');
+  if (H.hull <= 0) endGame(false, 'YOUR SHIP HAS BEEN DESTROYED.');
+}
+function damageAlien(a, d) {
+  a.hp -= d; a.flash = .25;
+  if (a.hp <= 0) killAlien(a);
+}
+function killAlien(a) {
+  const q = curQ(), i = q.aliens.indexOf(a); if (i < 0) return;
+  q.aliens.splice(i, 1); U.aliensLeft--; U.kills++;
+  fx(a.x, a.y, 'boom', .8, 1.2); sfx.boom();
+  say(`${ATYPES[a.type].name} DESTROYED. ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} REMAIN.`, 'good');
+  if (U.aliensLeft === 0 && !U.over) { U.endT = 1.6; U.pendingEnd = [true, 'ALL ALIEN SHIPS HAVE BEEN DESTROYED. THE GALAXY IS SAFE!']; }
+}
+function detonate(q, m) {
+  const i = q.mines.indexOf(m); if (i < 0) return; q.mines.splice(i, 1);
+  fx(m.x, m.y, 'big', 1, 1.6); sfx.big(); U.shake = .5;
+  for (const a of q.aliens.slice()) if (cheb(a.x, a.y, m.x, m.y) <= 1) killAlien(a);
+  if (q === curQ() && cheb(H.x, H.y, m.x, m.y) <= 1) { say('CAUGHT IN A MINE BLAST!', 'bad'); hitHero(70); }
+  for (const o of q.mines.slice()) if (cheb(o.x, o.y, m.x, m.y) <= 1) detonate(q, o);
+}
+function endGame(win, msg) {
+  if (U.over) return; U.over = true; engineOff(); (win ? sfx.win : sfx.lose)(); say(msg, win ? 'good' : 'bad');
+  const mins = Math.floor(U.t / 60), secs = Math.floor(U.t % 60);
+  showOverlay(win ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED', `${msg}\n\nALIENS DESTROYED: ${U.kills}\nALIENS REMAINING: ${U.aliensLeft}\nMISSION TIME: ${mins}m ${secs}s`, 'PLAY AGAIN', () => { newGame(); });
+}
+
+// ================================================================ hero commands
+function energyUse(n) { if (H.energy < n) { say('INSUFFICIENT ENERGY.', 'warn'); return false; } H.energy -= n; return true; }
+const driveCost = d => Math.round(d * 5 + d * d * 0.8);
+function cmd(name) {
+  initAudio(); if (!U || U.over) return;
+  if (U.sd && name !== 'sd') return;
+  if (name === 'help') return showHelp();
+  if (name === 'pause') { U.paused = !U.paused; if (U.paused) engineOff(); else if (H.moving) engineOn(); return; }
+  if (U.paused) return;
+  if (name === 'stop') return stopShip('ION DRIVE DISENGAGED.');
+  if (name === 'sd') return selfDestruct();
+  if (name === 'jump') { if (U.jm) { U.jm = null; return; } enterJump(); return; }
+  U.jm = null;
+  if (H.jump) { say('HYPERDRIVE SPOOLING - CONTROLS LOCKED.', 'warn'); return; }
+  U.pending = { cmd: name, t: 6 }; sfx.click();
+}
+function heroDir(d) {
+  if (U.over || U.paused) return;
+  if (U.sd) return;
+  if (U.jm) return;
+  const p = U.pending;
+  if (p) {
+    U.pending = null;
+    if (p.cmd === 'phaser') firePhaser(d); else if (p.cmd === 'torp') fireTorp(d); else if (p.cmd === 'mine') layMine(d); else if (p.cmd === 'move') engage(d);
+    return;
+  }
+  if (H.moving) { H.dir = d; say(`COURSE CHANGED (${dirName(d)}).`); sfx.click(); }
+  else say('SELECT A COMMAND FIRST: M (MOVE), P (PHASER), T (TORPEDO), L (MINE).', 'warn');
+}
+const dirName = d => ({ 7: 'NW', 8: 'N', 9: 'NE', 4: 'W', 6: 'E', 1: 'SW', 2: 'S', 3: 'SE' })[d];
+function engage(d) {
+  if (H.jump) return;
+  const dist = H.dist, cost = driveCost(dist);
+  if (!energyUse(cost)) return;
+  H.dir = d; H.moving = true; H.remaining = dist; H.total = dist; H.cost = cost; H.stepT = STEP; engineOn();
+  say(`ION DRIVE ENGAGED: ${dist} SECTORS ${dirName(d)}. ENERGY -${cost}.`);
+}
+function stopShip(msg) {
+  if (!H.moving) { if (msg) say('SHIP IS ALREADY STATIONARY.'); return; }
+  const refund = Math.round(H.cost * H.remaining / Math.max(1, H.total));
+  H.energy = Math.min(MAXE, H.energy + refund); H.moving = false; H.remaining = 0; engineOff();
+  if (msg) say(`${msg}${refund ? ' ENERGY REFUNDED: ' + refund + '.' : ''}`);
+}
+function firePhaser(d) {
+  if (U.beams.filter(b => b.owner === 'hero').length >= 3) return say('PHASER BANKS RECHARGING (MAX 3 BEAMS).', 'warn');
+  if (!energyUse(12)) return;
+  const q = curQ(), [vx, vy] = VEC[d], r = trace(q, H.x, H.y, vx, vy, 12, true);
+  U.beams.push({ x1: H.x, y1: H.y, x2: r.ex, y2: r.ey, t: 0, dur: .35, owner: 'hero' }); sfx.phaser();
+  if (r.hit) {
+    if (r.hit.t === 'alien') damageAlien(r.hit.o, 25);
+    else if (r.hit.t === 'mine') detonate(q, r.hit.o);
+    else fx(r.ex, r.ey, 'spark', .3, .6);
+  }
+}
+function fireTorp(d) {
+  if (U.proj.filter(p => p.owner === 'hero').length >= 2) return say('TORPEDO TUBES RELOADING (MAX 2 IN FLIGHT).', 'warn');
+  if (H.torps <= 0) return say('NO TORPEDOES REMAIN.', 'bad');
+  H.torps--; const [vx, vy] = VEC[d];
+  U.proj.push({ owner: 'hero', x: H.x, y: H.y, vx, vy, sp: 9, dmg: 80, cx: H.x, cy: H.y, life: 3 }); sfx.torp();
+}
+function layMine(d) {
+  if (H.mines <= 0) return say('NO MINES REMAIN.', 'bad');
+  const q = curQ(), [vx, vy] = VEC[d], x = H.x + vx, y = H.y + vy;
+  if (x < 0 || y < 0 || x >= SN || y >= SN || blockerAt(q, x, y) || q.mines.some(m => m.x === x && m.y === y)) return say('CANNOT LAY A MINE THERE.', 'warn');
+  H.mines--; q.mines.push({ x, y, owner: 'hero', arm: 2 }); sfx.mine(); say(`MINE LAID AT SECTOR ${x + 1},${y + 1}. KEEP CLEAR.`);
+}
+function selfDestruct() {
+  if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); sfx.click(); return; }
+  U.sd = { t: 5 }; sfx.alert(); say('SELF-DESTRUCT SEQUENCE STARTED. PRESS K AGAIN TO CANCEL.', 'bad');
+}
+// Hyperjump: J, then a number 1-9 (0 = 10) = how many sectors to jump. The direction is random, so you may land in another quadrant.
+const jumpCost = n => 80 + 20 * n;
+function enterJump() {
+  if (H.jump) return; U.pending = null; stopShip(null);
+  U.jm = { awaiting: true }; sfx.click();
+}
+function jumpNumber(n) {
+  U.jm = null; const cost = jumpCost(n); if (!energyUse(cost)) return;
+  H.jump = { t: 2, n, cost }; sfx.jumpUp();
+  say(`HYPERDRIVE CHARGING: JUMP OF ${n} SECTOR${n > 1 ? 'S' : ''}, DIRECTION RANDOM. ENERGY -${cost}.`, 'warn');
+}
+function finishJump() {
+  const j = H.jump; H.jump = null;
+  if (j.worm) {
+    sfx.jumpGo(); fx(H.x, H.y, 'jump', .6, 1); changeQuadrant(j.qx, j.qy); const p = freeCell(curQ()); H.x = p.x; H.y = p.y;
+  } else {
+    // pick a random direction whose landing sector is inside the galaxy and not blocked
+    const gx = H.qx * SN + H.x, gy = H.qy * SN + H.y, lim = GN * SN, dirs = Object.keys(VEC).map(Number).sort(() => rnd() - .5);
+    let land = null;
+    for (const d of dirs) {
+      const tx = gx + VEC[d][0] * j.n, ty = gy + VEC[d][1] * j.n; if (tx < 0 || ty < 0 || tx >= lim || ty >= lim) continue;
+      const q = Q(Math.floor(tx / SN), Math.floor(ty / SN)), sx = tx % SN, sy = ty % SN; if (blockerAt(q, sx, sy)) continue;
+      land = { qx: Math.floor(tx / SN), qy: Math.floor(ty / SN), sx, sy }; break;
+    }
+    if (!land) { H.energy = Math.min(MAXE, H.energy + j.cost); say('NO SAFE LANDING SECTOR FOUND. JUMP ABORTED, ENERGY REFUNDED.', 'bad'); return; }
+    sfx.jumpGo(); fx(H.x, H.y, 'jump', .6, 1);
+    if (land.qx !== H.qx || land.qy !== H.qy) changeQuadrant(land.qx, land.qy);
+    H.x = land.sx; H.y = land.sy;
+  }
+  H.moving = false; engineOff();
+  fx(H.x, H.y, 'jump', .6, 1); say(`HYPERJUMP COMPLETE. NOW AT QUADRANT ${H.qx + 1},${H.qy + 1}, SECTOR ${H.x + 1},${H.y + 1}.`, 'good');
+  checkSector();
+}
+function changeQuadrant(qx, qy) {
+  H.qx = qx; H.qy = qy; U.cam = null; U.beams = []; U.proj = []; U.grace = 1.5; const q = curQ();
+  const first = !q.visited; q.visited = true;
+  say(`ENTERING QUADRANT ${qx + 1},${qy + 1}${first ? '' : ' (VISITED)'}.`);
+  if (q.aliens.length) { say(`${q.aliens.length} ALIEN CONTACT${q.aliens.length > 1 ? 'S' : ''} DETECTED!`, 'bad'); sfx.alert(); }
+}
+
+// ================================================================ world update
+function checkSector() {
+  const q = curQ(), m = q.mines.find(m => m.x === H.x && m.y === H.y && m.arm <= 0);
+  if (m) { detonate(q, m); return; }
+  const an = q.anom; if (!an || an.x !== H.x || an.y !== H.y) return;
+  an.known = true;
+  if (an.type === 'storm') { H.shields = Math.max(0, H.shields - 45); H.flash = .5; U.shake = .4; say('ION STORM! SHIELDS SEVERELY DRAINED.', 'bad'); sfx.hit(); }
+  else if (an.type === 'radiat') { H.energy = Math.max(0, H.energy - 350); say('RADIATION CLOUD! ENERGY RESERVES DRAINED.', 'bad'); sfx.alert(); }
+  else if (an.type === 'worm') { say('WORMHOLE! YOU ARE BEING TORN THROUGH SPACE...', 'warn'); stopShip(null); H.jump = { t: .6, worm: true, qx: ri(GN), qy: ri(GN) }; sfx.jumpUp(); }
+  else if (an.type === 'depot') {
+    H.torps = Math.min(10, H.torps + 4); H.mines = Math.min(6, H.mines + 3); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
+    q.anom = null; sfx.supply(); say('SUPPLY DEPOT: TORPEDOES, MINES, ENERGY, HULL AND SHIELDS RESTORED!', 'good');
+  }
+}
+function heroMoveStep() {
+  const [dx, dy] = VEC[H.dir]; let nx = H.x + dx, ny = H.y + dy, nqx = H.qx, nqy = H.qy;
+  if (nx < 0) { nx = SN - 1; nqx--; } else if (nx >= SN) { nx = 0; nqx++; }
+  if (ny < 0) { ny = SN - 1; nqy--; } else if (ny >= SN) { ny = 0; nqy++; }
+  if (nqx < 0 || nqy < 0 || nqx >= GN || nqy >= GN) return stopShip('EDGE OF THE GALAXY. ION DRIVE DISENGAGED.');
+  const tq = Q(nqx, nqy), b = blockerAt(tq, nx, ny);
+  if (b && b.t !== 'hero') {
+    if (b.t === 'star') { hitHero(10); stopShip('COLLISION WITH A STAR! DRIVE DISENGAGED.'); }
+    else if (b.t === 'planet') stopShip('PLANET IN THE WAY. DRIVE DISENGAGED.');
+    else { hitHero(10); damageAlien(b.o, 20); stopShip('COLLISION WITH AN ALIEN SHIP!'); }
+    return;
+  }
+  if (nqx !== H.qx || nqy !== H.qy) changeQuadrant(nqx, nqy);
+  H.x = nx; H.y = ny; H.remaining--;
+  checkSector();
+  if (H.remaining <= 0 && H.moving) { H.moving = false; engineOff(); say('DESTINATION REACHED.'); }
+}
+function update(dt) {
+  if (!U || U.over) return;
+  if (U.endT > 0) { U.endT -= dt; if (U.endT <= 0 && U.pendingEnd) endGame(...U.pendingEnd); }
+  if (U.paused) return;
+  U.t += dt; U.grace = Math.max(0, U.grace - dt); U.shake = Math.max(0, U.shake - dt);
+  if (U.pending && (U.pending.t -= dt) <= 0) U.pending = null;
+  const q = curQ(); scanAround();
+  // energy / shields
+  H.energy = Math.min(MAXE, H.energy + 3 * dt); H.flash = Math.max(0, H.flash - dt); H.regenT = Math.max(0, H.regenT - dt);
+  if (H.shields < 100 && H.regenT <= 0 && H.energy > 30) { const r = 1.4 * Math.min(1, H.energy / 500) * dt; H.shields = Math.min(100, H.shields + r); H.energy -= r * 1.2; }
+  // hero motion
+  if (H.moving) { H.stepT -= dt; while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); } }
+  if (H.jump && (H.jump.t -= dt) <= 0) finishJump();
+  if (U.sd) {
+    const before = Math.ceil(U.sd.t); U.sd.t -= dt; if (Math.ceil(U.sd.t) !== before && U.sd.t > 0) sfx.beep(600 + (5 - U.sd.t) * 120);
+    if (U.sd.t <= 0) return doSelfDestruct();
+  }
+  // anomaly identification
+  const an = curQ().anom; if (an && !an.known && cheb(H.x, H.y, an.x, an.y) <= 3) { an.known = true; sfx.ping(); say(`SHORT RANGE SENSORS IDENTIFY: ${ANOM[an.type].name}.`, 'warn'); }
+  // mines arming
+  for (const m of q.mines) if (m.arm > 0) m.arm -= dt;
+  // aliens
+  let disturb = false;
+  for (const a of q.aliens.slice()) { updateAlien(a, dt); if (a.cloaked && cheb(a.x, a.y, H.x, H.y) <= 4) disturb = true; }
+  if (disturb && !U.disturbMsg) { say('SENSORS DETECT A DISTURBANCE NEARBY...', 'warn'); U.disturbMsg = 12; sfx.ping(); }
+  if (U.disturbMsg) U.disturbMsg = Math.max(0, U.disturbMsg - dt);
+  // projectiles
+  for (const p of U.proj.slice()) updateProj(p, dt);
+  for (const b of U.beams) b.t += dt; U.beams = U.beams.filter(b => b.t < b.dur);
+  for (const f of U.fx) f.t += dt; U.fx = U.fx.filter(f => f.t < f.dur);
+}
+function updateProj(p, dt) {
+  const q = curQ(); p.life -= dt; if (p.life <= 0) return void U.proj.splice(U.proj.indexOf(p), 1);
+  p.x += p.vx * p.sp * dt; p.y += p.vy * p.sp * dt;
+  const cx = Math.round(p.x), cy = Math.round(p.y);
+  if (cx === p.cx && cy === p.cy) return; p.cx = cx; p.cy = cy;
+  const rm = () => { const i = U.proj.indexOf(p); if (i >= 0) U.proj.splice(i, 1); };
+  if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) return rm();
+  const m = q.mines.find(m => m.x === cx && m.y === cy); if (m) { rm(); return detonate(q, m); }
+  const b = blockerAt(q, cx, cy); if (!b) return;
+  if (p.owner === 'hero') {
+    if (b.t === 'hero') return;
+    rm(); fx(cx, cy, 'boom', .5, .8); sfx.boom(); if (b.t === 'alien') damageAlien(b.o, p.dmg);
+  } else {
+    if (b.t === 'alien') return;
+    rm(); fx(cx, cy, 'boom', .5, .8); if (b.t === 'hero') hitHero(p.dmg); else sfx.boom();
+  }
+}
+function updateAlien(a, dt) {
+  const q = curQ(), T = ATYPES[a.type], grace = U.grace > 0;
+  a.flash = Math.max(0, a.flash - dt); a.pcd -= dt; a.tcd -= dt; a.mcd -= dt; a.stepT -= dt; a.cloakT -= dt;
+  a.vis += ((a.cloaked ? 0 : 1) - a.vis) * Math.min(1, dt * 5);
+  a.dT -= dt; if (a.dT <= 0) { a.dT = 1.1; a.dOff = [(rnd() - .5) * 2.4, (rnd() - .5) * 2.4]; }
+  const dx = H.x - a.x, dy = H.y - a.y; a.ang = Math.atan2(dy, dx);
+  if (T.cloak && !a.cloaked && a.cloakT <= 0 && !a.charge) { a.cloaked = true; a.cloakT = 5 + rnd() * 4; sfx.cloak(); }
+  if (a.charge) {
+    a.charge.t -= dt;
+    if (a.charge.t <= 0) {
+      const ch = a.charge; a.charge = null;
+      if (!grace && !U.over) {
+        if (ch.kind === 'phaser') {
+          const r = trace(q, a.x, a.y, ch.vx, ch.vy, 12, false); U.beams.push({ x1: a.x, y1: a.y, x2: r.ex, y2: r.ey, t: 0, dur: .3, owner: 'alien' }); sfx.aPhaser();
+          if (r.hit && r.hit.t === 'hero') hitHero(T.ph); else if (r.hit && r.hit.t === 'mine') detonate(q, r.hit.o);
+        } else { U.proj.push({ owner: 'alien', x: a.x, y: a.y, vx: ch.vx, vy: ch.vy, sp: 5.5, dmg: 35, cx: a.x, cy: a.y, life: 4 }); sfx.torp(); }
+      }
+      a.cloakT = Math.max(a.cloakT, 2);
+    }
+    return;
+  }
+  // movement
+  if (a.stepT <= 0) {
+    a.stepT = T.step * (.85 + rnd() * .3); let best = null, bs = -1e9;
+    for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+      const nx = a.x + ox, ny = a.y + oy; if (nx < 0 || ny < 0 || nx >= SN || ny >= SN) continue;
+      if ((ox || oy) && (blockerAt(q, nx, ny) || q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny))) continue;
+      const ddx = H.x - nx, ddy = H.y - ny, d = Math.max(Math.abs(ddx), Math.abs(ddy)), al = (ddx === 0 || ddy === 0 || Math.abs(ddx) === Math.abs(ddy)) && d > 0;
+      const s = -Math.abs(d - T.pref) + (al ? 3 : 0) + rnd() * .9 - (ox || oy ? 0 : .6);
+      if (s > bs) { bs = s; best = [nx, ny]; }
+    }
+    if (best && (best[0] !== a.x || best[1] !== a.y)) {
+      a.x = best[0]; a.y = best[1];
+      const m = q.mines.find(m => m.owner === 'hero' && m.x === a.x && m.y === a.y && m.arm <= 0); if (m) { detonate(q, m); return; }
+    }
+  }
+  // mines
+  if (T.mine && a.mcd <= 0 && !grace && q.mines.filter(m => m.owner === 'alien').length < 8 && !q.mines.some(m => m.x === a.x && m.y === a.y)) { q.mines.push({ x: a.x, y: a.y, owner: 'alien', arm: 2 }); a.mcd = 9 + rnd() * 6; }
+  // firing
+  if (grace) return;
+  const dx2 = H.x - a.x, dy2 = H.y - a.y, d = Math.max(Math.abs(dx2), Math.abs(dy2));
+  if (d > 0 && d <= 8 && (dx2 === 0 || dy2 === 0 || Math.abs(dx2) === Math.abs(dy2))) {
+    const vx = Math.sign(dx2), vy = Math.sign(dy2), r = trace(q, a.x, a.y, vx, vy, 12, false);
+    if (r.hit && r.hit.t === 'hero') {
+      if (a.cloaked) { if (a.pcd <= 0 || a.tcd <= 0) { a.cloaked = false; a.cloakT = 2.5; sfx.decloak(); } return; }
+      if (T.torp && a.tcd <= 0 && d >= 2 && rnd() < .5) { a.charge = { kind: 'torp', vx, vy, t: .7 }; a.tcd = T.tcd + rnd() * 2; }
+      else if (a.pcd <= 0) { a.charge = { kind: 'phaser', vx, vy, t: .55 }; a.pcd = T.pcd + rnd(); }
+    }
+  }
+}
+function doSelfDestruct() {
+  const q = curQ(); U.sd = null; sfx.big();
+  for (let i = 0; i < 8; i++) fx(H.x + (rnd() - .5) * 8, H.y + (rnd() - .5) * 8, 'big', 1.2, 2);
+  for (const a of q.aliens.slice()) { q.aliens.splice(q.aliens.indexOf(a), 1); U.aliensLeft--; U.kills++; fx(a.x, a.y, 'big', 1.2, 1.5); }
+  q.mines = []; H.hull = 0;
+  say('SELF-DESTRUCT COMPLETE. THE QUADRANT IS DESTROYED.', 'bad');
+  endGame(U.aliensLeft === 0, U.aliensLeft === 0 ? 'YOU GAVE YOUR SHIP TO DESTROY THE LAST ALIENS. THE GALAXY IS SAFE!' : `YOUR SHIP WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`);
+}
+
+// ================================================================ drawing: sprites
+function poly(ctx, pts) { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); }
+function drawHero(ctx, x, y, ang, flash) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(1.2, 1.2);
+  if (H.moving) { const f = 6 + rnd() * 6; ctx.fillStyle = 'rgba(255,170,60,.9)'; poly(ctx, [[-11, -2.5], [-11 - f, 0], [-11, 2.5]]); ctx.fill(); }
+  ctx.fillStyle = '#3d7bff'; poly(ctx, [[3, -4], [-9, -11], [-12, -9], [-8, -3]]); ctx.fill(); poly(ctx, [[3, 4], [-9, 11], [-12, 9], [-8, 3]]); ctx.fill();
+  const gr = ctx.createLinearGradient(0, -6, 0, 6); gr.addColorStop(0, flash ? '#ffb3b3' : '#f2f8ff'); gr.addColorStop(1, flash ? '#ff6a6a' : '#8fb4d9');
+  ctx.fillStyle = gr; poly(ctx, [[16, 0], [5, -4.5], [-11, -4], [-13, -2], [-13, 2], [-11, 4], [5, 4.5]]); ctx.fill();
+  ctx.fillStyle = '#4fd8ff'; ctx.fillRect(-9, -1, 14, 2); ctx.fillStyle = '#12305a'; ctx.beginPath(); ctx.ellipse(6, 0, 3.4, 1.8, 0, 0, 6.3); ctx.fill();
+  if (H.shields > 3) { ctx.strokeStyle = `rgba(79,216,255,${.15 + H.shields / 100 * .35})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(0, 0, 19, 15, 0, 0, 6.3); ctx.stroke(); }
+  ctx.restore();
+}
+function drawAlienShip(ctx, a, x, y, t) {
+  const T = ATYPES[a.type]; ctx.save(); ctx.translate(x, y); ctx.rotate(a.ang); ctx.globalAlpha = a.vis;
+  const col = a.flash > 0 ? '#ffffff' : T.col;
+  if (a.type === 'scout') { ctx.fillStyle = col; poly(ctx, [[14, 0], [-8, -9], [-3, 0], [-8, 9]]); ctx.fill(); ctx.fillStyle = '#0a3a0a'; ctx.fillRect(-1, -1.5, 8, 3); }
+  else if (a.type === 'raider') { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, 0, 9, 0, 6.3); ctx.fill(); poly(ctx, [[8, -8], [17, -5], [9, -2]]); ctx.fill(); poly(ctx, [[8, 8], [17, 5], [9, 2]]); ctx.fill();
+    ctx.fillStyle = '#5a2a00'; ctx.beginPath(); ctx.arc(-1, 0, 4, 0, 6.3); ctx.fill(); ctx.fillStyle = '#ffe14d'; ctx.fillRect(-9, -2, 3, 4); }
+  else if (a.type === 'cruiser') { ctx.fillStyle = col; poly(ctx, [[17, -3], [17, 3], [8, 6], [-14, 7], [-16, 0], [-14, -7], [8, -6]]); ctx.fill(); ctx.fillStyle = '#7a1010'; ctx.fillRect(-10, -3, 16, 6);
+    ctx.fillStyle = '#ffd0d0'; ctx.fillRect(12, -6, 8, 2); ctx.fillRect(12, 4, 8, 2); ctx.fillStyle = '#ffe14d'; ctx.beginPath(); ctx.arc(-4, 0, 2.4, 0, 6.3); ctx.fill(); }
+  else if (a.type === 'stealth') { ctx.fillStyle = col; poly(ctx, [[17, 0], [-4, -13], [-13, -7], [-8, 0], [-13, 7], [-4, 13]]); ctx.fill(); ctx.strokeStyle = '#f0e0ff'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#2a0a4a'; poly(ctx, [[8, 0], [-3, -5], [-6, 0], [-3, 5]]); ctx.fill(); }
+  else { ctx.fillStyle = col; ctx.beginPath(); for (let i = 0; i < 6; i++) { const an = i * Math.PI / 3; ctx.lineTo(Math.cos(an) * 17, Math.sin(an) * 14); } ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#5a0a2a'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, 6.3); ctx.fill(); ctx.fillStyle = '#ffd0e0'; ctx.fillRect(10, -8, 9, 3); ctx.fillRect(10, 5, 9, 3);
+    ctx.fillStyle = ((t * 4) | 0) & 1 ? '#ffe14d' : '#fff'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, 6.3); ctx.fill(); ctx.strokeStyle = '#ff9ab8'; ctx.lineWidth = 1.2; ctx.stroke(); }
+  ctx.restore();
+}
+function drawStar(ctx, x, y, col, t, seed) {
+  const r = 8 + Math.sin(t * 2 + seed) * .8, gr = ctx.createRadialGradient(x, y, 1, x, y, r * 2.4);
+  gr.addColorStop(0, '#ffffff'); gr.addColorStop(.25, col); gr.addColorStop(1, col + '00'); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, r * 2.4, 0, 6.3); ctx.fill();
+  ctx.strokeStyle = col; ctx.globalAlpha = .6; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x - r * 2, y); ctx.lineTo(x + r * 2, y); ctx.moveTo(x, y - r * 2); ctx.lineTo(x, y + r * 2); ctx.stroke(); ctx.globalAlpha = 1;
+}
+function drawPlanet(ctx, p, x, y) {
+  const r = 12, gr = ctx.createRadialGradient(x - 4, y - 4, 2, x, y, r);
+  gr.addColorStop(0, `hsl(${p.hue},70%,75%)`); gr.addColorStop(.6, `hsl(${p.hue},55%,42%)`); gr.addColorStop(1, `hsl(${p.hue},60%,14%)`);
+  if (p.ring) { ctx.strokeStyle = `hsla(${p.hue},50%,80%,.7)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, y, r * 1.6, r * .45, -.4, Math.PI, 0); ctx.stroke(); }
+  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.3); ctx.fill();
+  if (p.ring) { ctx.strokeStyle = `hsla(${p.hue},50%,80%,.7)`; ctx.beginPath(); ctx.ellipse(x, y, r * 1.6, r * .45, -.4, 0, Math.PI); ctx.stroke(); }
+}
+function drawAnom(ctx, an, x, y, t) {
+  const col = an.known ? ANOM[an.type].col : '#b08cff'; ctx.save(); ctx.translate(x, y);
+  for (let i = 0; i < 3; i++) { ctx.strokeStyle = col; ctx.globalAlpha = .5 - i * .12; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 8 + i * 5 + Math.sin(t * 2 + i) * 2, t + i, t + i + 4); ctx.stroke(); }
+  ctx.globalAlpha = 1; ctx.fillStyle = col; ctx.font = 'bold 13px "Courier New"'; ctx.textAlign = 'center';
+  if (!an.known) ctx.fillText('?', 0, 5);
+  else { const s = { storm: 'Ψ', radiat: '☢', worm: '◎', depot: '+' }[an.type]; ctx.fillText(s, 0, 5); ctx.font = '7px "Courier New"'; ctx.fillText(ANOM[an.type].name, 0, 24); }
+  ctx.restore();
+}
+function drawMine(ctx, m, x, y, t) {
+  const armed = m.arm <= 0; ctx.save(); ctx.translate(x, y); ctx.fillStyle = '#1a1f2a'; ctx.strokeStyle = '#8a95a8'; ctx.lineWidth = 1.5;
+  for (let i = 0; i < 8; i++) { const an = i * Math.PI / 4; ctx.beginPath(); ctx.moveTo(Math.cos(an) * 5, Math.sin(an) * 5); ctx.lineTo(Math.cos(an) * 9, Math.sin(an) * 9); ctx.stroke(); }
+  ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, 6.3); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = (((t * (armed ? 2 : 8)) | 0) & 1) ? (m.owner === 'hero' ? '#4fd8ff' : '#ff4d5e') : '#333'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, 6.3); ctx.fill(); ctx.restore();
+}
+
+// ================================================================ drawing: short range
+const cx = v => (v + .5) * CELL;
+function drawSR(t) {
+  const q = curQ();
+  c.save(); if (U.shake > 0) c.translate((rnd() - .5) * U.shake * 14, (rnd() - .5) * U.shake * 14);
+  c.fillStyle = '#03040a'; c.fillRect(0, 0, SW, SW);
+  const ng = c.createRadialGradient(SW * .3, SW * .35, 10, SW * .3, SW * .35, SW * .8); ng.addColorStop(0, `hsla(${q.hue},60%,30%,.28)`); ng.addColorStop(1, 'transparent'); c.fillStyle = ng; c.fillRect(0, 0, SW, SW);
+  c.fillStyle = '#fff'; for (let i = 0; i < 60; i++) { const sx = (i * 137.5 + q.hue * 7) % SW, sy = (i * 71.3 + q.hue * 3) % SW; c.globalAlpha = .25 + .3 * Math.abs(Math.sin(t + i)); c.fillRect(sx, sy, 1.2, 1.2); } c.globalAlpha = 1;
+  // camera follows the hero inside the 32x32 quadrant; everything below is drawn in world coordinates
+  const tcx = Math.max(0, Math.min(SN - VIEW, H.x + .5 - VIEW / 2)), tcy = Math.max(0, Math.min(SN - VIEW, H.y + .5 - VIEW / 2));
+  if (!U.cam) U.cam = { x: tcx, y: tcy }; const cam = U.cam; cam.x += (tcx - cam.x) * .2; cam.y += (tcy - cam.y) * .2;
+  c.save(); c.translate(-cam.x * CELL, -cam.y * CELL);
+  const gx0 = Math.floor(cam.x), gx1 = Math.min(SN, Math.ceil(cam.x + VIEW)), gy0 = Math.floor(cam.y), gy1 = Math.min(SN, Math.ceil(cam.y + VIEW));
+  c.strokeStyle = 'rgba(79,216,255,.09)'; c.lineWidth = 1; c.beginPath();
+  for (let i = gx0; i <= gx1; i++) { c.moveTo(i * CELL, gy0 * CELL); c.lineTo(i * CELL, gy1 * CELL); }
+  for (let j = gy0; j <= gy1; j++) { c.moveTo(gx0 * CELL, j * CELL); c.lineTo(gx1 * CELL, j * CELL); } c.stroke();
+  c.strokeStyle = 'rgba(79,216,255,.6)'; c.lineWidth = 3; c.strokeRect(0, 0, SN * CELL, SN * CELL);
+  c.font = '9px "Courier New"'; c.fillStyle = 'rgba(79,216,255,.45)'; c.textAlign = 'left';
+  for (let i = gx0; i < gx1; i++) if (i % 4 === 0) c.fillText(i + 1, i * CELL + 3, gy0 * CELL + 10);
+  for (let j = gy0; j < gy1; j++) if (j % 4 === 0 && j) c.fillText(j + 1, gx0 * CELL + 3, j * CELL + 10);
+  // direction guide
+  const armed = U.pending && ['phaser', 'torp', 'mine', 'move'].includes(U.pending.cmd);
+  if (armed) { c.strokeStyle = U.pending.cmd === 'move' ? 'rgba(51,255,102,.35)' : 'rgba(255,154,77,.35)'; c.setLineDash([4, 5]); c.lineWidth = 1;
+    for (const d in VEC) { const [vx, vy] = VEC[d]; c.beginPath(); c.moveTo(cx(H.x), cx(H.y)); c.lineTo(cx(H.x) + vx * SW, cx(H.y) + vy * SW); c.stroke();
+      const lx = cx(H.x) + vx * 32, ly = cx(H.y) + vy * 32; c.setLineDash([]); c.fillStyle = 'rgba(255,255,255,.75)'; c.font = 'bold 11px "Courier New"'; c.textAlign = 'center'; c.fillText(d, lx, ly + 4); c.setLineDash([4, 5]); } c.setLineDash([]); }
+  if (H.moving) { const [vx, vy] = VEC[H.dir]; c.strokeStyle = 'rgba(51,255,102,.4)'; c.lineWidth = 2; c.setLineDash([2, 4]); c.beginPath(); c.moveTo(cx(H.x), cx(H.y)); c.lineTo(cx(H.x + vx * H.remaining), cx(H.y + vy * H.remaining)); c.stroke(); c.setLineDash([]); }
+  if (q.anom) drawAnom(c, q.anom, cx(q.anom.x), cx(q.anom.y), t);
+  for (const p of q.planets) drawPlanet(c, p, cx(p.x), cx(p.y));
+  q.stars.forEach((s, i) => drawStar(c, cx(s.x), cx(s.y), s.col, t, i));
+  for (const m of q.mines) { if (m.owner === 'hero' || cheb(m.x, m.y, H.x, H.y) <= 3) drawMine(c, m, cx(m.x), cx(m.y), t); }
+  for (const a of q.aliens) {
+    if (a.cloaked && a.vis < .15) { if (cheb(a.x, a.y, H.x, H.y) <= 4) { const ox = cx(a.x + a.dOff[0]), oy = cx(a.y + a.dOff[1]);
+        c.strokeStyle = 'rgba(192,139,255,.55)'; c.lineWidth = 1.5; c.setLineDash([3, 4]); c.beginPath(); c.arc(ox, oy, 26 + Math.sin(t * 5) * 3, 0, 6.3); c.stroke(); c.setLineDash([]); c.fillStyle = 'rgba(192,139,255,.8)'; c.font = '8px "Courier New"'; c.textAlign = 'center'; c.fillText('DISTURBANCE', ox, oy + 3); } continue; }
+    drawAlienShip(c, a, cx(a.x), cx(a.y), t);
+    const T = ATYPES[a.type]; if (a.hp < T.hp) { c.fillStyle = '#300'; c.fillRect(cx(a.x) - 12, cx(a.y) - 20, 24, 3); c.fillStyle = '#ff5c5c'; c.fillRect(cx(a.x) - 12, cx(a.y) - 20, 24 * a.hp / T.hp, 3); }
+    if (a.charge) { c.strokeStyle = 'rgba(255,80,80,.55)'; c.lineWidth = 1; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(cx(a.x), cx(a.y)); c.lineTo(cx(a.x) + a.charge.vx * SW, cx(a.y) + a.charge.vy * SW); c.stroke(); c.setLineDash([]); }
+  }
+  if (!U.over || H.hull > 0) drawHero(c, cx(H.x), cx(H.y), Math.atan2(VEC[H.dir][1], VEC[H.dir][0]), H.flash > 0);
+  if (H.jump) { c.strokeStyle = `rgba(200,150,255,${.4 + .4 * Math.sin(t * 20)})`; c.lineWidth = 2; c.beginPath(); c.arc(cx(H.x), cx(H.y), 22 + (2 - H.jump.t) * 6, 0, 6.3); c.stroke(); }
+  for (const b of U.beams) { const k = b.t / b.dur, col = b.owner === 'hero' ? '79,216,255' : '255,90,90'; c.strokeStyle = `rgba(${col},${1 - k})`; c.lineWidth = 3 - k * 2; c.shadowColor = `rgb(${col})`; c.shadowBlur = 10;
+    c.beginPath(); c.moveTo(cx(b.x1), cx(b.y1)); c.lineTo(cx(b.x2), cx(b.y2)); c.stroke(); c.shadowBlur = 0; }
+  for (const p of U.proj) { const col = p.owner === 'hero' ? '#7fe8ff' : '#ff8a5c'; c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 12; c.beginPath(); c.arc(cx(p.x), cx(p.y), 4, 0, 6.3); c.fill(); c.shadowBlur = 0;
+    c.strokeStyle = col; c.globalAlpha = .4; c.lineWidth = 2; c.beginPath(); c.moveTo(cx(p.x), cx(p.y)); c.lineTo(cx(p.x - p.vx * .6), cx(p.y - p.vy * .6)); c.stroke(); c.globalAlpha = 1; }
+  for (const f of U.fx) { const k = f.t / f.dur, x = cx(f.x), y = cx(f.y), r = (f.kind === 'big' ? 20 + k * 80 : f.kind === 'jump' ? 10 + k * 50 : 6 + k * 26) * f.size;
+    c.globalAlpha = 1 - k; c.fillStyle = f.kind === 'jump' ? '#c08bff' : k < .3 ? '#fff' : '#ffb347'; if (f.kind !== 'spark') { c.beginPath(); c.arc(x, y, r * .5, 0, 6.3); c.fill(); }
+    c.strokeStyle = f.kind === 'jump' ? '#e0c0ff' : '#ff6a3a'; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r, 0, 6.3); c.stroke(); c.globalAlpha = 1; }
+  c.restore(); drawMini(t, cam);
+  if (U.jm) { c.fillStyle = '#c08bff'; c.font = 'bold 13px "Courier New"'; c.textAlign = 'center'; c.fillText('HYPERJUMP: HOW MANY SECTORS? (1-9, 0 = 10)', SW / 2, 26); }
+  if (H.flash > 0) { c.fillStyle = `rgba(255,40,40,${H.flash * .35})`; c.fillRect(0, 0, SW, SW); }
+  c.fillStyle = 'rgba(79,216,255,.7)'; c.font = 'bold 10px "Courier New"'; c.textAlign = 'right'; c.fillText(`QUADRANT ${H.qx + 1},${H.qy + 1}`, SW - 6, SW - 6);
+  if (U.sd) { c.fillStyle = '#ff4d5e'; c.font = 'bold 40px "Courier New"'; c.textAlign = 'center'; c.fillText(Math.ceil(U.sd.t), SW / 2, SW / 2 + 14); c.font = 'bold 14px "Courier New"'; c.fillText('SELF-DESTRUCT', SW / 2, SW / 2 - 34); c.font = 'bold 11px "Courier New"'; c.fillText('PRESS K TO CANCEL', SW / 2, SW / 2 + 36); }
+  if (H.jump) { c.fillStyle = '#c08bff'; c.font = 'bold 14px "Courier New"'; c.textAlign = 'center'; c.fillText('HYPERDRIVE CHARGING... ' + H.jump.t.toFixed(1), SW / 2, 26); }
+  if (U.paused) { c.fillStyle = 'rgba(0,0,10,.55)'; c.fillRect(0, 0, SW, SW); c.fillStyle = '#fff'; c.font = 'bold 28px "Courier New"'; c.textAlign = 'center'; c.fillText('PAUSED', SW / 2, SW / 2); }
+  c.restore();
+}
+
+// Short range scanner: the whole 32x32 quadrant. Small inset by default; press R for the large full-screen version.
+function drawMini(t, cam) {
+  const q = curQ(), big = U.scanBig, S = big ? SW - 24 : 116, k = S / SN, ox = big ? 12 : SW - S - 8, oy = big ? 12 : 8;
+  c.save(); c.translate(ox, oy);
+  c.fillStyle = big ? 'rgba(2,6,16,.94)' : 'rgba(2,6,16,.75)'; c.fillRect(0, 0, S, S); c.strokeStyle = 'rgba(79,216,255,.6)'; c.lineWidth = 1; c.strokeRect(.5, .5, S - 1, S - 1);
+  if (big) { c.strokeStyle = 'rgba(79,216,255,.12)'; c.beginPath(); for (let i = 4; i < SN; i += 4) { c.moveTo(i * k, 0); c.lineTo(i * k, S); c.moveTo(0, i * k); c.lineTo(S, i * k); } c.stroke();
+    c.fillStyle = 'rgba(160,190,230,.5)'; c.font = '9px "Courier New"'; c.textAlign = 'left'; for (let i = 4; i < SN; i += 4) { c.fillText(i + 1, i * k + 2, 10); c.fillText(i + 1, 2, i * k + 10); } }
+  const d = big ? 4 : 2;   // dot sizes
+  c.fillStyle = '#ffd54d'; for (const s of q.stars) c.fillRect(s.x * k, s.y * k, d, d);
+  c.fillStyle = '#6fb8ff'; for (const p of q.planets) c.fillRect(p.x * k - .5, p.y * k - .5, d + 1, d + 1);
+  if (q.anom) { c.fillStyle = '#c08bff'; c.fillRect(q.anom.x * k - 1, q.anom.y * k - 1, d + 2, d + 2); if (big) { c.font = 'bold 10px "Courier New"'; c.textAlign = 'left'; c.fillText(q.anom.known ? ANOM[q.anom.type].name : '?', q.anom.x * k + 8, q.anom.y * k + 8); } }
+  for (const m of q.mines) { if (m.owner === 'hero') { c.fillStyle = '#4fd8ff'; c.fillRect(m.x * k, m.y * k, d, d); } else if (cheb(m.x, m.y, H.x, H.y) <= 3) { c.fillStyle = '#ff4d5e'; c.fillRect(m.x * k, m.y * k, d, d); } }
+  for (const a of q.aliens) if (!(a.cloaked && a.vis < .15)) { c.fillStyle = ATYPES[a.type].col; c.fillRect(a.x * k - 1, a.y * k - 1, d + 2, d + 2); c.strokeStyle = '#ff4d5e'; c.lineWidth = 1; c.strokeRect(a.x * k - 2, a.y * k - 2, d + 4, d + 4); }
+  c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1; c.strokeRect(cam.x * k, cam.y * k, VIEW * k, VIEW * k);
+  if (((t * 3) | 0) & 1) { c.fillStyle = '#fff'; c.fillRect(H.x * k - 2, H.y * k - 2, d + 3, d + 3); }
+  c.fillStyle = 'rgba(160,190,230,.75)'; c.font = (big ? 10 : 7) + 'px "Courier New"'; c.textAlign = 'left';
+  c.fillText(big ? 'SHORT RANGE SCANNER — QUADRANT ' + (H.qx + 1) + ',' + (H.qy + 1) + '   (R = CLOSE)' : 'SHORT RANGE SCAN (R = ENLARGE)', 3, S - 3);
+  c.restore();
+}
+// ================================================================ drawing: long range
+const isScanned = (x, y) => Math.abs(x - H.qx) <= 1 && Math.abs(y - H.qy) <= 1;
+function scanAround() {   // the long range scanner: current + adjacent quadrants are read live, and remembered as "last scan"
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const x = H.qx + dx, y = H.qy + dy; if (x < 0 || y < 0 || x >= GN || y >= GN) continue;
+    const q = Q(x, y), i = qInfo(q); if (i) q.mem = { al: i.al, st: i.st, pl: i.pl, an: i.an ? i.an.type : null };
+  }
+}
+function qInfo(q) {
+  if (q.anom && !q.anom.known) return null;
+  return { al: q.aliens.filter(a => !(ATYPES[a.type].cloak && a.cloaked)).length, st: q.stars.length, pl: q.planets.length, an: q.anom };
+}
+function drawLR(t) {
+  g.fillStyle = '#03040a'; g.fillRect(0, 0, GW, GW);
+  for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
+    const q = Q(x, y), px = x * GC, py = y * GC, here = x === H.qx && y === H.qy, sc = isScanned(x, y);
+    let info = null, dim = false;
+    if (sc) info = qInfo(q); else if (q.mem) { info = { al: q.mem.al, st: q.mem.st, pl: q.mem.pl, an: q.mem.an ? { type: q.mem.an } : null }; dim = true; }
+    g.fillStyle = here ? 'rgba(79,216,255,.16)' : q.visited ? 'rgba(40,70,120,.22)' : 'rgba(20,30,60,.25)'; g.fillRect(px + 1, py + 1, GC - 2, GC - 2);
+    g.strokeStyle = 'rgba(79,216,255,.18)'; g.strokeRect(px + .5, py + .5, GC - 1, GC - 1);
+    g.font = '7px "Courier New"'; g.fillStyle = 'rgba(160,190,230,.45)'; g.textAlign = 'left'; g.fillText(`${x + 1},${y + 1}`, px + 3, py + 8);
+    g.textAlign = 'left';
+    if (!info) { if (sc) { g.fillStyle = '#b08cff'; g.font = 'bold 15px "Courier New"'; g.textAlign = 'center'; g.fillText('???', px + GC / 2, py + GC / 2 + 8); } continue; }
+    g.font = 'bold 10px "Courier New"'; g.globalAlpha = dim ? .42 : 1;
+    g.fillStyle = info.al ? '#ff6a7a' : '#4a4f66'; g.fillText('☠' + info.al, px + 5, py + 21);
+    g.fillStyle = '#ffd54d'; g.fillText('★' + info.st, px + 5, py + 32); g.fillStyle = '#6fb8ff'; g.fillText('●' + info.pl, px + 5, py + 43);
+    if (info.an) { g.fillStyle = ANOM[info.an.type].col; g.fillText('◎', px + 34, py + 43); }
+    g.globalAlpha = 1;
+  }
+  { const a0 = Math.max(0, H.qx - 1), b0 = Math.max(0, H.qy - 1), a1 = Math.min(GN - 1, H.qx + 1), b1 = Math.min(GN - 1, H.qy + 1);
+    g.strokeStyle = 'rgba(79,216,255,.5)'; g.lineWidth = 1.5; g.setLineDash([5, 4]); g.strokeRect(a0 * GC + 1, b0 * GC + 1, (a1 - a0 + 1) * GC - 2, (b1 - b0 + 1) * GC - 2); g.setLineDash([]); }
+  const hx = H.qx * GC, hy = H.qy * GC; g.strokeStyle = `rgba(79,216,255,${.6 + .4 * Math.sin(t * 4)})`; g.lineWidth = 2; g.strokeRect(hx + 2, hy + 2, GC - 4, GC - 4);
+  g.fillStyle = '#fff'; g.beginPath(); g.moveTo(hx + GC - 8, hy + 8); g.lineTo(hx + GC - 20, hy + 13); g.lineTo(hx + GC - 20, hy + 3); g.fill();
+  g.lineWidth = 1;
+}
+
+// ================================================================ UI
+function updateHUD() {
+  $('bS').firstElementChild.nextElementSibling.firstChild.style.width = H.shields + '%'; $('tS').textContent = Math.round(H.shields) + '%';
+  $('bH').firstElementChild.nextElementSibling.firstChild.style.width = Math.max(0, H.hull) + '%'; $('tH').textContent = Math.max(0, Math.round(H.hull)) + '%';
+  $('bE').firstElementChild.nextElementSibling.firstChild.style.width = H.energy / MAXE * 100 + '%'; $('tE').textContent = Math.round(H.energy);
+  $('sTorp').textContent = H.torps; $('sMine').textContent = H.mines; $('sAl').textContent = U.aliensLeft; $('sPos').textContent = `${H.qx + 1},${H.qy + 1} / ${H.x + 1},${H.y + 1}`;
+  let p = '';
+  if (U.sd) p = `SELF-DESTRUCT IN ${Math.ceil(U.sd.t)}... PRESS K AGAIN TO CANCEL.`;
+  else if (U.jm) p = 'HYPERJUMP: PRESS A NUMBER 1-9 (0 = 10) FOR THE NUMBER OF SECTORS. DIRECTION IS RANDOM - YOU MAY LAND IN ANOTHER QUADRANT. ESC CANCELS.';
+  else if (H.jump) p = 'HYPERDRIVE CHARGING...';
+  else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAY MINE: PRESS A DIRECTION (NUMPAD 1-9)', move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
+  else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S STOPS.`;
+  else p = 'READY. M = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   H = HELP';
+  $('prompt').textContent = p;
+  $('distv').textContent = H.dist; $('distc').textContent = 'ENERGY COST ' + driveCost(H.dist);
+  $('jnums').style.display = U.jm ? 'grid' : 'none';
+}
+function showOverlay(t, m, b, cb) { $('ovT').textContent = t; $('ovM').textContent = m; $('ovB').textContent = b; $('overlay').style.display = 'flex'; $('ovB').onclick = () => { initAudio(); $('overlay').style.display = 'none'; cb(); }; }
+const HELP = `GOAL: destroy every alien ship hiding in the 8x8 galaxy of quadrants. Each quadrant is 32x32 sectors, so the main screen shows a 16x16 window that follows your ship.
+
+SHORT RANGE SCANNER: the small inset (top right of the main screen) shows the WHOLE quadrant - aliens, stars, planets, anomalies and mines (white box = what you can currently see). Press R to enlarge it.
+LONG RANGE SCANNER (galaxy map): reads your quadrant and the 8 ADJACENT quadrants live - aliens (skull), stars and planets in each. Quadrants further away show your last scan, dimmed. "???" means an anomaly is jamming the scanner - fly close to identify it.
+
+DIRECTIONS use the NUMPAD (or the top-row digits):
+   7 NW   8 N   9 NE
+   4 W          6 E
+   1 SW   2 S   3 SE
+
+ION DRIVE  set distance with + / - (or the slider), press M, then a direction. Longer trips cost more energy. While moving, press a direction to change course, S to stop (unused energy refunded).
+PHASER (P) + direction: fast, weaker. Max 3 beams at once.
+TORPEDO (T) + direction: slow, powerful. Limited supply, max 2 in flight.
+MINE (L) + direction: lays a mine next to you. Anything entering it - or a beam/torpedo hitting it - blasts all adjacent sectors. Includes you!
+HYPERJUMP (J) + a number 1-9 (0 = 10): jumps that many sectors in a RANDOM direction after a 2 second spool-up. You may end up in another quadrant. Costs more energy the further you jump.
+SELF DESTRUCT (K): 5 second countdown, then everything in the quadrant is destroyed - including you. Press K again to cancel.
+SPACE pauses. Weapons work while moving.
+
+DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines. Stars and planets block movement and shots.
+ANOMALIES: ion storm (drains shields), radiation cloud (drains energy), wormhole (random teleport), supply depot (restocks you).`;
+function showHelp() { if (U) U.paused = true; engineOff(); showOverlay('CONTROLS', HELP, 'CONTINUE', () => { if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); } }); }
+
+// ================================================================ input
+const KEYDIR = { Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9, Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9 };
+addEventListener('keydown', e => {
+  if ($('overlay').style.display === 'flex') { if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); $('ovB').click(); } return; }
+  if (!U || e.repeat) return; initAudio();
+  const k = e.code, dd = KEYDIR[k];
+  if (U.jm) {   // hyperjump: a number key chooses the distance (0 = 10)
+    const m = /^(?:Digit|Numpad)(\d)$/.exec(k);
+    if (m) { e.preventDefault(); const n = +m[1] || 10; jumpNumber(n); return; }
+  }
+  if (dd) { e.preventDefault(); heroDir(dd); return; }
+  switch (k) {
+    case 'KeyM': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyL': cmd('mine'); break;
+    case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
+    case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break; case 'KeyS': cmd('stop'); break; case 'KeyH': cmd('help'); break;
+    case 'Space': e.preventDefault(); cmd('pause'); break;
+    case 'Escape': if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } U.pending = null; U.jm = null; break;
+    case 'Equal': case 'NumpadAdd': setDist(H.dist + 1); break; case 'Minus': case 'NumpadSubtract': setDist(H.dist - 1); break;
+  }
+});
+function setDist(v) { H.dist = Math.max(1, Math.min(40, v)); $('dist').value = H.dist; }
+$('dist').oninput = e => { H.dist = +e.target.value; };
+for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () => { initAudio(); heroDir(+b.dataset.d); };
+$('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
+for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cJump', 'jump'], ['cSD', 'sd'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
+$('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
+for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); };
+lr.addEventListener('pointerdown', e => {
+  initAudio(); if (!U) return; const r = lr.getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / r.width * GN), y = Math.floor((e.clientY - r.top) / r.height * GN);
+  const q = Q(x, y), sc = isScanned(x, y), i = sc ? qInfo(q) : q.mem, fmt = i => `${i.al} ALIEN${i.al === 1 ? '' : 'S'}, ${i.st} STARS, ${i.pl} PLANETS.`;
+  say(`QUADRANT ${x + 1},${y + 1}: ` + (sc ? (i ? fmt(i) : 'LONG RANGE SENSORS JAMMED BY AN ANOMALY. GET CLOSER.') : i ? 'LAST SCAN: ' + fmt(i) : 'OUT OF SCANNER RANGE (ADJACENT QUADRANTS ONLY).'));
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && U && !U.over && !U.paused) { U.paused = true; engineOff(); } });
+
+// ================================================================ main loop
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  if (U) { update(dt); drawSR(now / 1000); drawLR(now / 1000); updateHUD(); }
+  requestAnimationFrame(loop);
+}
+newGame();
+showOverlay('INVASION FORCE', 'Alien warships have infiltrated the galaxy. You are the hero, in command of the last defence cruiser.\n\n' + HELP, 'LAUNCH', () => { U.paused = false; });
+U.paused = true;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
