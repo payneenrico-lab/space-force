@@ -239,17 +239,17 @@ function trace(q, x, y, vx, vy, range, skipHero, rad) {
 }
 // A phaser beam. Passing through a radiation cloud it either fizzles out, is scattered in a random direction, or carries straight on (1 in 3 each).
 function beamPath(q, x, y, vx, vy, range, skipHero, owner) {
-  let r = trace(q, x, y, vx, vy, range, skipHero, true), sx = x, sy = y, left = range, n = 0;
+  let r = trace(q, x, y, vx, vy, range, skipHero, true), sx = x, sy = y, left = range, n = 0, scat = false;
   U.beams.push({ x1: sx, y1: sy, x2: r.ex, y2: r.ey, t: 0, dur: .35, owner });
   while (r.hit && r.hit.t === 'rad' && n++ < 3) {
     left -= r.dist; sx = r.ex; sy = r.ey;
     const roll = rnd();
     if (roll < 1 / 3 || left <= 0) { fx(sx, sy, 'boom', .5, .9); sfx.boom(); return { ex: sx, ey: sy, hit: null }; }   // fizzles out
-    if (roll < 2 / 3) { const d = randDir(); vx = VEC[d][0]; vy = VEC[d][1]; fx(sx, sy, 'spark', .4, .8); }            // scattered
+    if (roll < 2 / 3) { const d = randDir(); vx = VEC[d][0]; vy = VEC[d][1]; fx(sx, sy, 'spark', .4, .8); scat = true; skipHero = false; }   // scattered: may even come back at the shooter
     r = trace(q, sx, sy, vx, vy, left, skipHero, true);   // (otherwise it carries straight on)
     U.beams.push({ x1: sx, y1: sy, x2: r.ex, y2: r.ey, t: 0, dur: .35, owner });
   }
-  return r;
+  r.scattered = scat; return r;
 }
 const fx = (x, y, kind, dur = .6, size = 1, col) => U.fx.push({ x, y, kind, t: 0, dur, size, col });
 
@@ -338,6 +338,7 @@ function firePhaser(d) {
   if (r.hit) {
     if (r.hit.t === 'alien') damageAlien(r.hit.o, 25);
     else if (r.hit.t === 'mine') detonate(q, r.hit.o);
+    else if (r.hit.t === 'hero') { say('YOUR OWN PHASER BEAM WAS SCATTERED BACK AT YOU!', 'bad'); hitHero(15); }
     else fx(r.ex, r.ey, 'spark', .3, .6);
   }
 }
@@ -492,16 +493,18 @@ function updateProj(p, dt) {
   if (an && an.type === 'radiat' && an.x === cx && an.y === cy) {
     const roll = rnd();
     if (roll < 1 / 3) { rm(); radBlast(q, cx, cy); return; }
-    if (roll < 2 / 3) { const d = randDir(); p.vx = VEC[d][0]; p.vy = VEC[d][1]; p.x = cx; p.y = cy; fx(cx, cy, 'spark', .4, .8); sfx.ping(); return; }
+    if (roll < 2 / 3) { const d = randDir(); p.vx = VEC[d][0]; p.vy = VEC[d][1]; p.x = cx; p.y = cy; p.deflected = true; fx(cx, cy, 'spark', .4, .8); sfx.ping(); return; }
     // otherwise: no effect, the torpedo flies straight on
   }
   const b = blockerAt(q, cx, cy); if (!b) return;
   if (p.owner === 'hero') {
-    if (b.t === 'hero') return;
-    rm(); fx(cx, cy, 'boom', .5, .8); sfx.boom(); if (b.t === 'alien') damageAlien(b.o, p.dmg);
+    if (b.t === 'hero' && !p.deflected) return;   // your own torpedo only threatens you after a cloud has deflected it
+    rm(); fx(cx, cy, 'boom', .5, .8); sfx.boom();
+    if (b.t === 'alien') damageAlien(b.o, p.dmg); else if (b.t === 'hero') { say('YOUR OWN TORPEDO WAS DEFLECTED BACK AT YOU!', 'bad'); hitHero(45); }
   } else {
-    if (b.t === 'alien') return;
-    rm(); fx(cx, cy, 'boom', .5, .8); if (b.t === 'hero') hitHero(p.dmg); else sfx.boom();
+    if (b.t === 'alien' && !p.deflected) return;
+    rm(); fx(cx, cy, 'boom', .5, .8);
+    if (b.t === 'hero') hitHero(p.dmg); else { sfx.boom(); if (b.t === 'alien') damageAlien(b.o, 60); }
   }
 }
 function updateAlien(a, dt) {
@@ -519,6 +522,7 @@ function updateAlien(a, dt) {
         if (ch.kind === 'phaser') {
           const r = beamPath(q, a.x, a.y, ch.vx, ch.vy, 12, false, 'alien'); sfx.aPhaser();
           if (r.hit && r.hit.t === 'hero') hitHero(T.ph); else if (r.hit && r.hit.t === 'mine') detonate(q, r.hit.o);
+          else if (r.scattered && r.hit && r.hit.t === 'alien') damageAlien(r.hit.o, T.ph);   // a scattered beam can hit other aliens (or its own ship)
         } else { U.proj.push({ owner: 'alien', x: a.x, y: a.y, vx: ch.vx, vy: ch.vy, sp: 5.5, dmg: 35, cx: a.x, cy: a.y, life: 4 }); sfx.torp(); }
       }
       a.cloakT = Math.max(a.cloakT, 2);
@@ -769,7 +773,7 @@ SPACE pauses. Weapons work while moving.
 
 DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines. Stars and planets block movement and shots.
 ANOMALIES: ion storm (drains shields), wormhole (random teleport), supply depot (restocks you).
-RADIATION CLOUD: flying into one triggers ONE random effect - a scrambled hyperjump to a random sector or quadrant, an energy drain, a shield drain, an energy surge, fully restored shields, the ship is CRIPPLED for up to 12 seconds (no drive, weapons or shields - enemy hits go straight to the hull), or nothing happens at all. Torpedoes entering a cloud either explode (hurting anything adjacent), are deflected in a random direction, or fly straight on; phaser beams either fizzle out, scatter in a random direction, or carry on unaffected.`;
+RADIATION CLOUD: flying into one triggers ONE random effect - a scrambled hyperjump to a random sector or quadrant, an energy drain, a shield drain, an energy surge, fully restored shields, the ship is CRIPPLED for up to 12 seconds (no drive, weapons or shields - enemy hits go straight to the hull), or nothing happens at all. Torpedoes entering a cloud either explode (hurting anything adjacent), are deflected in a random direction, or fly straight on; phaser beams either fizzle out, scatter in a random direction, or carry on unaffected. A deflected or scattered weapon can hit anything in its new path - including the ship that fired it!`;
 function showHelp() { if (U) U.paused = true; engineOff(); showOverlay('CONTROLS', HELP, 'CONTINUE', () => { if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); } }); }
 
 // ================================================================ input
