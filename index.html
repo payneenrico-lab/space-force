@@ -613,9 +613,10 @@ function heroMoveStep() {
     if (b.t === 'station') { hitStation(b.o, 60); explodeHero('YOUR SHIP RAMMED THE SPACE STATION AT FULL SPEED AND WAS DESTROYED.'); return; }
     if (b.t === 'star' || b.t === 'planet' || b.t === 'rock') { explodeHero(`YOUR SHIP RAMMED ${COLL_LABEL[b.t]} AT FULL SPEED AND WAS DESTROYED.`); return; }
     if (b.t === 'alien') {
-      damageAlien(b.o, 20);
+      const dmg = collisionDamage();   // the impact hits both ships equally hard
+      damageAlien(b.o, dmg);
       if (H.shields < 20 && H.energy < 150) { explodeHero('THE IMPACT BREACHED YOUR HULL - SHIELDS TOO WEAK AND POWER TOO LOW TO HOLD.'); return; }
-      const dmg = collisionDamage(); hitHero(dmg);
+      hitHero(dmg);
       if (!U.dying) stopShip(`COLLISION WITH AN ALIEN SHIP! IMPACT DAMAGE: ${dmg}.`);
     }
     return;
@@ -1264,7 +1265,7 @@ DIRECTIONS use the NUMPAD (or the top-row digits):
    1 SW   2 S   3 SE
 
 ION DRIVE  set distance with + / - (or the slider), press I, then a direction. Longer trips cost more energy. While moving, press a direction to change course, S to stop (unused energy refunded).
-COLLISIONS: the computer sounds a COLLISION ALARM when a star, planet, asteroid, station, the nest or an alien ship is ahead on your course - react by stopping or changing direction. Ram a star, planet, asteroid, station or the nest and your ship is destroyed outright. Ram an alien ship instead and you take impact damage (worse the more speed you still had left to travel, plus some randomness); if your shields are already weak and you don't have enough reserve energy to hold them, the hull breach destroys the ship. Your ship explodes when destroyed, by any cause.
+COLLISIONS: the computer sounds a COLLISION ALARM when a star, planet, asteroid, station, the nest or an alien ship is ahead on your course - react by stopping or changing direction. Ram a star, planet, asteroid, station or the nest and your ship is destroyed outright. Ram an alien ship instead and the impact hits BOTH ships equally hard (worse the more speed you still had left to travel, plus some randomness) - it can destroy a weak alien outright; if your own shields are already weak and you don't have enough reserve energy to hold them, the hull breach destroys your ship. Your ship explodes when destroyed, by any cause.
 PHASER (P) + direction: fast, weaker. Max 3 beams at once.
 TORPEDO (T) + direction: slow, powerful. Limited supply, max 2 in flight.
 PROMOTION: destroying aliens earns commendations. Reach LEVEL 3 to unlock the DISRUPTOR, and LEVEL 6 to unlock the NOVA TORPEDO.
