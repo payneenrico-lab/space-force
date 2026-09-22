@@ -626,12 +626,12 @@ function heroMoveStep() {
   checkSector();
   if (H.remaining <= 0 && H.moving) { H.moving = false; engineOff(); say('DESTINATION REACHED.'); }
 }
-// Continuously scans up to 6 sectors ahead along the current heading so the computer can warn of an imminent collision before it happens.
+// Continuously scans up to 10 sectors ahead along the current heading so the computer can warn of an imminent collision sooner.
 function scanCollisionAhead(dt) {
   H.collision = null;
   if (H.moving) {
     const [dx, dy] = VEC[H.dir]; let qx = H.qx, qy = H.qy, x = H.x, y = H.y;
-    const look = Math.min(6, H.remaining);
+    const look = Math.min(10, H.remaining);
     for (let i = 1; i <= look; i++) {
       x += dx; y += dy;
       if (x < 0) { x = SN - 1; qx--; } else if (x >= SN) { x = 0; qx++; }
