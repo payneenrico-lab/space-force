@@ -977,6 +977,31 @@ function updateProj(p, dt) {
     if (b.t === 'hero') hitHero(p.dmg); else { sfx.boom(); if (b.t === 'alien') damageAlien(b.o, 60); else if (b.t === 'rock') destroyRock(q, b.o); else if (b.t === 'station') hitStation(b.o, p.dmg); }
   }
 }
+// Plots a short route around whatever is blocking a direct approach (stars, planets, debris, asteroid fields...) via
+// breadth-first search, stopping once within the alien's preferred stand-off range of the target rather than trying
+// to path onto the target's own cell. Returns an array of [x,y] steps (excluding the start cell), or null if nothing
+// better than the current spot was found.
+function findPath(q, sx, sy, tx, ty, pref) {
+  const key = (x, y) => x + ',' + y, passable = (x, y) => x >= 0 && y >= 0 && x < SN && y < SN && !blockerAt(q, x, y) && !q.mines.some(m => m.owner === 'alien' && m.x === x && m.y === y);
+  const start = key(sx, sy), parent = new Map([[start, null]]), order = [[sx, sy]];
+  let qi = 0, best = [sx, sy], bestScore = -Math.abs(cheb(sx, sy, tx, ty) - pref);
+  while (qi < order.length && order.length < 400) {
+    const [cx, cy] = order[qi++];
+    if (cheb(cx, cy, tx, ty) <= pref) { best = [cx, cy]; break; }   // close enough to fight from here - stop searching
+    for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+      if (!ox && !oy) continue;
+      const nx = cx + ox, ny = cy + oy, k = key(nx, ny);
+      if (parent.has(k) || !passable(nx, ny)) continue;
+      parent.set(k, key(cx, cy)); order.push([nx, ny]);
+      const s = -Math.abs(cheb(nx, ny, tx, ty) - pref);
+      if (s > bestScore) { bestScore = s; best = [nx, ny]; }
+    }
+  }
+  let bk = key(best[0], best[1]), path = [];
+  while (bk && bk !== start) { const [x, y] = bk.split(',').map(Number); path.push([x, y]); bk = parent.get(bk); }
+  path.reverse();
+  return path.length ? path.slice(0, 30) : null;
+}
 function updateAlien(a, dt) {
   const q = curQ(), T = ATYPES[a.type], grace = U.grace > 0;
   a.flash = Math.max(0, a.flash - dt); a.pcd -= dt; a.tcd -= dt; a.mcd -= dt; a.stepT -= dt; a.cloakT -= dt;
@@ -985,13 +1010,14 @@ function updateAlien(a, dt) {
   // choose a target: usually the hero, but aliens also go after space stations (especially one the hero is docked at)
   a.tgtT = (a.tgtT || 0) - dt;
   if (a.tgtT <= 0) {
-    a.tgtT = 4 + rnd() * 4; a.tgt = null; const ss = q.stations;
+    a.tgtT = 4 + rnd() * 4; const prevTgt = a.tgt; a.tgt = null; const ss = q.stations;
     if (ss.length) {
       const docked = H.docking && ss.includes(H.docking.s) ? H.docking.s : null, near = ss.slice().sort((p, r) => cheb(p.x, p.y, a.x, a.y) - cheb(r.x, r.y, a.x, a.y))[0];
       if (docked ? rnd() < .85 : rnd() < .3) a.tgt = docked || near;
     }
+    if (a.tgt !== prevTgt) a.path = null;   // switched targets - any plotted detour is stale
   }
-  if (a.tgt && !q.stations.includes(a.tgt)) a.tgt = null;
+  if (a.tgt && !q.stations.includes(a.tgt)) { a.tgt = null; a.path = null; }
   const tx = a.tgt ? a.tgt.x : H.x, ty = a.tgt ? a.tgt.y : H.y, atHero = !a.tgt;
   const dx = tx - a.x, dy = ty - a.y; a.ang = Math.atan2(dy, dx);
   if (T.cloak && !a.cloaked && a.cloakT <= 0 && !a.charge) { a.cloaked = true; a.cloakT = 5 + rnd() * 4; sfx.cloak(); }
@@ -1011,19 +1037,35 @@ function updateAlien(a, dt) {
     }
     return;
   }
-  // movement
+  // movement — follows a plotted detour path when it has one, so a star/planet/debris field in the way gets routed
+  // around instead of the ship pacing helplessly along its edge; falls back to the short-sighted greedy step otherwise,
+  // and plots a detour once that greedy step has failed to make progress for a few ticks in a row.
   if (a.stepT <= 0) {
-    a.stepT = T.step * (.85 + rnd() * .3); let best = null, bs = -1e9;
-    for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
-      const nx = a.x + ox, ny = a.y + oy; if (nx < 0 || ny < 0 || nx >= SN || ny >= SN) continue;
-      if ((ox || oy) && (blockerAt(q, nx, ny) || q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny))) continue;
-      const ddx = tx - nx, ddy = ty - ny, d = Math.max(Math.abs(ddx), Math.abs(ddy)), al = (ddx === 0 || ddy === 0 || Math.abs(ddx) === Math.abs(ddy)) && d > 0;
-      const s = -Math.abs(d - T.pref) + (al ? 3 : 0) + rnd() * .9 - (ox || oy ? 0 : .6);
-      if (s > bs) { bs = s; best = [nx, ny]; }
+    a.stepT = T.step * (.85 + rnd() * .3);
+    const curD = Math.max(Math.abs(tx - a.x), Math.abs(ty - a.y));
+    if (a.path && a.path.length) {
+      const [nx, ny] = a.path[0];
+      if (nx >= 0 && ny >= 0 && nx < SN && ny < SN && !blockerAt(q, nx, ny) && !q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny)) {
+        a.path.shift(); a.x = nx; a.y = ny;
+        const m = q.mines.find(m => m.owner === 'hero' && m.x === a.x && m.y === a.y && m.arm <= 0); if (m) { detonate(q, m); return; }
+      } else a.path = null;   // something moved into the planned cell - drop the stale route and re-plan
     }
-    if (best && (best[0] !== a.x || best[1] !== a.y)) {
-      a.x = best[0]; a.y = best[1];
-      const m = q.mines.find(m => m.owner === 'hero' && m.x === a.x && m.y === a.y && m.arm <= 0); if (m) { detonate(q, m); return; }
+    if (!a.path || !a.path.length) {
+      let best = null, bs = -1e9;
+      for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+        const nx = a.x + ox, ny = a.y + oy; if (nx < 0 || ny < 0 || nx >= SN || ny >= SN) continue;
+        if ((ox || oy) && (blockerAt(q, nx, ny) || q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny))) continue;
+        const ddx = tx - nx, ddy = ty - ny, d = Math.max(Math.abs(ddx), Math.abs(ddy)), al = (ddx === 0 || ddy === 0 || Math.abs(ddx) === Math.abs(ddy)) && d > 0;
+        const s = -Math.abs(d - T.pref) + (al ? 3 : 0) + rnd() * .9 - (ox || oy ? 0 : .6);
+        if (s > bs) { bs = s; best = [nx, ny]; }
+      }
+      if (best && (best[0] !== a.x || best[1] !== a.y)) {
+        a.x = best[0]; a.y = best[1];
+        const m = q.mines.find(m => m.owner === 'hero' && m.x === a.x && m.y === a.y && m.arm <= 0); if (m) { detonate(q, m); return; }
+      }
+      const newD = Math.max(Math.abs(tx - a.x), Math.abs(ty - a.y));
+      a.stuckN = newD >= curD ? (a.stuckN || 0) + 1 : 0;
+      if (a.stuckN >= 3) { a.path = findPath(q, a.x, a.y, tx, ty, T.pref); a.stuckN = 0; }
     }
   }
   // mines
@@ -1327,7 +1369,7 @@ function drawLR(t) {
 function drawSweep(t) {
   const w = lrSweep.width, h = lrSweep.height;
   gs.fillStyle = '#03040a'; gs.fillRect(0, 0, w, h);
-  const period = 3, tt = (t % period) / period, p = tt < .5 ? tt * 2 : 2 - tt * 2, x = p * w;
+  const period = 6, tt = (t % period) / period, p = tt < .5 ? tt * 2 : 2 - tt * 2, x = p * w;
   const barW = w * .07, barH = h * .5;
   const grad = gs.createLinearGradient(x - barW, 0, x + barW, 0);
   grad.addColorStop(0, 'rgba(79,216,255,0)'); grad.addColorStop(.5, 'rgba(79,216,255,.85)'); grad.addColorStop(1, 'rgba(79,216,255,0)');
