@@ -1122,9 +1122,12 @@ function drawSR(t) {
   if (!U.cam) U.cam = { x: tcx, y: tcy }; const cam = U.cam; cam.x += (tcx - cam.x) * .2; cam.y += (tcy - cam.y) * .2;
   c.save(); c.translate(-cam.x * CELL, -cam.y * CELL);
   const gx0 = Math.floor(cam.x), gx1 = Math.min(SN, Math.ceil(cam.x + VIEW)), gy0 = Math.floor(cam.y), gy1 = Math.min(SN, Math.ceil(cam.y + VIEW));
+  // the camera pans by a fraction of a pixel each frame; without snapping, some grid lines land on a whole device pixel (crisp)
+  // and others land between two (blurred by anti-aliasing), making the grid look inconsistently bright line to line.
+  const gfx = cam.x * CELL - Math.round(cam.x * CELL), gfy = cam.y * CELL - Math.round(cam.y * CELL);
   c.strokeStyle = 'rgba(79,216,255,.32)'; c.lineWidth = 1; c.beginPath();
-  for (let i = gx0; i <= gx1; i++) { c.moveTo(i * CELL, gy0 * CELL); c.lineTo(i * CELL, gy1 * CELL); }
-  for (let j = gy0; j <= gy1; j++) { c.moveTo(gx0 * CELL, j * CELL); c.lineTo(gx1 * CELL, j * CELL); } c.stroke();
+  for (let i = gx0; i <= gx1; i++) { c.moveTo(i * CELL - gfx, gy0 * CELL - gfy); c.lineTo(i * CELL - gfx, gy1 * CELL - gfy); }
+  for (let j = gy0; j <= gy1; j++) { c.moveTo(gx0 * CELL - gfx, j * CELL - gfy); c.lineTo(gx1 * CELL - gfx, j * CELL - gfy); } c.stroke();
   c.strokeStyle = 'rgba(79,216,255,.6)'; c.lineWidth = 3; c.strokeRect(0, 0, SN * CELL, SN * CELL);
   c.font = '9px "Courier New"'; c.fillStyle = 'rgba(79,216,255,.45)'; c.textAlign = 'left';
   for (let i = gx0; i < gx1; i++) if (i % 4 === 0) c.fillText(i + 1, i * CELL + 3, gy0 * CELL + 10);
