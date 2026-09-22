@@ -22,8 +22,15 @@
     #controls #ctl { grid-template-columns: 1fr; justify-items: center; }
     #controls #compass { margin: 0 auto; }
   }
-  h1 { grid-area: h; margin: 0; font-size: 15px; letter-spacing: 3px; color: var(--cyan); display: flex; justify-content: space-between; }
+  h1 { grid-area: h; margin: 0; font-size: 15px; letter-spacing: 3px; color: var(--cyan);
+       display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
   h1 small { color: #6f8fb5; letter-spacing: 1px; font-weight: normal; }
+  @media (min-width: 560px) {
+    /* wide enough for both on one line - the subtitle is centered on the whole bar (not flush against the
+       title or the right edge), so it stays put via absolute positioning regardless of the title's width. */
+    h1 { position: relative; flex-direction: row; align-items: baseline; justify-content: flex-start; text-align: left; min-height: 1em; }
+    h1 small { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); white-space: nowrap; }
+  }
   #controls { grid-area: ctl; } #mainCol { grid-area: main; } #side { grid-area: side; }
   #stage { position: relative; max-width: min(480px, 90%); margin: 0 auto; }
   @media (min-width: 980px) { #stage { max-width: none; } }
@@ -1395,7 +1402,7 @@ function updateHUD() {
   else if (U.pending && U.pending.stage === 'pick') p = `MINE SELF DESTRUCT: PRESS 1 OR 2 TO CHOOSE WHICH MINE IN FLIGHT TO DETONATE (${U.proj.filter(pr => pr.mine && pr.owner === 'hero').length} IN FLIGHT).`;
   else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9)', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.collision) p = `⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD! CHANGE COURSE (NUMPAD) OR STOP (S).`;
-  else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S OR 0 STOPS.`;
+  else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S, 0 OR 5 STOPS.`;
   else p = 'READY.';
   $('prompt').textContent = p;
   $('distv').textContent = H.dist; $('distc').textContent = 'ENERGY COST ' + driveCost(H.dist);
@@ -1415,7 +1422,7 @@ DIRECTIONS use the NUMPAD (or the top-row digits):
    4 W          6 E
    1 SW   2 S   3 SE
 
-ION DRIVE  set distance with + / - (or the slider), press I, then a direction. Longer trips cost more energy. While moving, press a direction to change course, S or 0 to stop (unused energy refunded).
+ION DRIVE  set distance with + / - or the left/right arrow keys (or the slider), press I, then a direction. Longer trips cost more energy. While moving, press a direction to change course, S, 0 or 5 to stop (unused energy refunded).
 COLLISIONS: the computer sounds a COLLISION ALARM when a star, planet, asteroid, station, the nest or an alien ship is ahead on your course - react by stopping or changing direction. Ram a star, planet, asteroid, station or the nest and your ship is destroyed outright. Ram an alien ship instead and the impact hits BOTH ships equally hard (worse the more speed you still had left to travel, plus some randomness) - it can destroy a weak alien outright; if your own shields are already weak and you don't have enough reserve energy to hold them, the hull breach destroys your ship. Your ship explodes when destroyed, by any cause.
 PHASER (P) + direction: fast, weaker. Max 3 beams at once.
 TORPEDO (T) + direction: slow, powerful. Limited supply, max 2 in flight.
@@ -1615,11 +1622,16 @@ addEventListener('keydown', e => {
     case 'KeyX': cmd('disr'); break; case 'KeyV': cmd('nova'); break; case 'KeyB': cmd('minesd'); break;
     case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
     case 'KeyD': cmd('dock'); break;
-    case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break; case 'KeyS': case 'Digit0': case 'Numpad0': cmd('stop'); break; case 'KeyH': cmd('help'); break;
+    case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break;
+    case 'KeyS': case 'Digit0': case 'Numpad0': case 'Digit5': case 'Numpad5': cmd('stop'); break;
+    case 'KeyH': cmd('help'); break;
     case 'KeyG': cmd('guide'); break; case 'KeyC': cmd('contacts'); break;
     case 'Space': e.preventDefault(); cmd('pause'); break;
     case 'Escape': if (guideOpen) { hideGuide(); break; } if (contactsOpen) { hideContacts(); break; } if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } U.pending = null; U.jm = null; break;
-    case 'Equal': case 'NumpadAdd': setDist(H.dist + 1); break; case 'Minus': case 'NumpadSubtract': setDist(H.dist - 1); break;
+    case 'Equal': case 'NumpadAdd': setDist(H.dist + 1); break;
+    case 'Minus': case 'NumpadSubtract': setDist(H.dist - 1); break;
+    case 'ArrowRight': e.preventDefault(); setDist(H.dist + 1); break;
+    case 'ArrowLeft': e.preventDefault(); setDist(H.dist - 1); break;
   }
 });
 function setDist(v) { H.dist = Math.max(1, Math.min(40, v)); $('dist').value = H.dist; }
