@@ -1115,19 +1115,27 @@ function drawSR(t) {
   const q = curQ();
   c.save(); if (U.shake > 0) c.translate((rnd() - .5) * U.shake * 14, (rnd() - .5) * U.shake * 14);
   c.fillStyle = '#03040a'; c.fillRect(0, 0, SW, SW);
-  const ng = c.createRadialGradient(SW * .3, SW * .35, 10, SW * .3, SW * .35, SW * .8); ng.addColorStop(0, `hsla(${q.hue},60%,30%,.28)`); ng.addColorStop(1, 'transparent'); c.fillStyle = ng; c.fillRect(0, 0, SW, SW);
   c.fillStyle = '#fff'; for (let i = 0; i < 60; i++) { const sx = (i * 137.5 + q.hue * 7) % SW, sy = (i * 71.3 + q.hue * 3) % SW; c.globalAlpha = .25 + .3 * Math.abs(Math.sin(t + i)); c.fillRect(sx, sy, 1.2, 1.2); } c.globalAlpha = 1;
   // camera follows the hero inside the 32x32 quadrant; everything below is drawn in world coordinates
   const tcx = Math.max(0, Math.min(SN - VIEW, H.x + .5 - VIEW / 2)), tcy = Math.max(0, Math.min(SN - VIEW, H.y + .5 - VIEW / 2));
   if (!U.cam) U.cam = { x: tcx, y: tcy }; const cam = U.cam; cam.x += (tcx - cam.x) * .2; cam.y += (tcy - cam.y) * .2;
   c.save(); c.translate(-cam.x * CELL, -cam.y * CELL);
+  // the quadrant's ambient colour tint: anchored to a fixed SPOT IN SPACE (not the screen), so it's a real feature of the
+  // quadrant you fly past, rather than a patch stuck to one corner of the viewport that made grid lines crossing it look
+  // brighter than the rest of the grid no matter where the camera was pointed.
+  const nwx = SN * .3 * CELL, nwy = SN * .35 * CELL;
+  const ng = c.createRadialGradient(nwx, nwy, 10, nwx, nwy, SN * .8 * CELL); ng.addColorStop(0, `hsla(${q.hue},60%,30%,.28)`); ng.addColorStop(1, 'transparent');
+  c.fillStyle = ng; c.fillRect(cam.x * CELL - 4, cam.y * CELL - 4, SW + 8, SW + 8);
   const gx0 = Math.floor(cam.x), gx1 = Math.min(SN, Math.ceil(cam.x + VIEW)), gy0 = Math.floor(cam.y), gy1 = Math.min(SN, Math.ceil(cam.y + VIEW));
   // the camera pans by a fraction of a pixel each frame; without snapping, some grid lines land on a whole device pixel (crisp)
   // and others land between two (blurred by anti-aliasing), making the grid look inconsistently bright line to line.
   const gfx = cam.x * CELL - Math.round(cam.x * CELL), gfy = cam.y * CELL - Math.round(cam.y * CELL);
-  c.strokeStyle = 'rgba(79,216,255,.32)'; c.lineWidth = 1; c.beginPath();
+  c.beginPath();
   for (let i = gx0; i <= gx1; i++) { c.moveTo(i * CELL - gfx, gy0 * CELL - gfy); c.lineTo(i * CELL - gfx, gy1 * CELL - gfy); }
-  for (let j = gy0; j <= gy1; j++) { c.moveTo(gx0 * CELL - gfx, j * CELL - gfy); c.lineTo(gx1 * CELL - gfx, j * CELL - gfy); } c.stroke();
+  for (let j = gy0; j <= gy1; j++) { c.moveTo(gx0 * CELL - gfx, j * CELL - gfy); c.lineTo(gx1 * CELL - gfx, j * CELL - gfy); }
+  // a dark outline first, then the cyan line on top - so a line reads the same contrast whether it's over open space or a bright star/nebula glow
+  c.strokeStyle = 'rgba(0,3,10,.6)'; c.lineWidth = 3; c.stroke();
+  c.strokeStyle = 'rgba(79,216,255,.4)'; c.lineWidth = 1; c.stroke();
   c.strokeStyle = 'rgba(79,216,255,.6)'; c.lineWidth = 3; c.strokeRect(0, 0, SN * CELL, SN * CELL);
   c.font = '9px "Courier New"'; c.fillStyle = 'rgba(79,216,255,.45)'; c.textAlign = 'left';
   for (let i = gx0; i < gx1; i++) if (i % 4 === 0) c.fillText(i + 1, i * CELL + 3, gy0 * CELL + 10);
