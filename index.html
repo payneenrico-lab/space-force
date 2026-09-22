@@ -55,8 +55,11 @@
   #compass { display: grid; grid-template-columns: repeat(3, 46px); gap: 4px; }
   #compass button { padding: 0; height: 46px; font-size: 18px; } #compass .c { border-color: var(--red); color: #ffb3bb; background: #4a1420; font-size: 13px; }
   #dist { width: 100%; } .dl { display: flex; justify-content: space-between; }
-  #overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(2,4,12,.9); border-radius: 6px; padding: 14px; overflow-y: auto; }
-  #overlay .card { max-width: 520px; } #overlay h2 { margin: 0 0 8px; letter-spacing: 3px; color: var(--cyan); }
+  /* display:flex + a centered child that's taller than the box clips its top and can't be scrolled to - margin:auto on the
+     child (instead of align-items/justify-content on the box) still centers it when it fits, but falls back to normal,
+     fully-scrollable top-down flow the moment it doesn't. */
+  #overlay { position: absolute; inset: 0; display: none; background: rgba(2,4,12,.9); border-radius: 6px; padding: 14px; overflow-y: auto; }
+  #overlay .card { max-width: 520px; margin: auto; } #overlay h2 { margin: 0 0 8px; letter-spacing: 3px; color: var(--cyan); }
   #overlay pre { margin: 0 0 10px; white-space: pre-wrap; font: 12px/1.4 "Courier New", monospace; color: var(--green); text-align: left; }
   #overlay button { padding: 12px 22px; }
 </style>
