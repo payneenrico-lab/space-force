@@ -1105,7 +1105,7 @@ function drawSR(t) {
   if (!U.cam) U.cam = { x: tcx, y: tcy }; const cam = U.cam; cam.x += (tcx - cam.x) * .2; cam.y += (tcy - cam.y) * .2;
   c.save(); c.translate(-cam.x * CELL, -cam.y * CELL);
   const gx0 = Math.floor(cam.x), gx1 = Math.min(SN, Math.ceil(cam.x + VIEW)), gy0 = Math.floor(cam.y), gy1 = Math.min(SN, Math.ceil(cam.y + VIEW));
-  c.strokeStyle = 'rgba(79,216,255,.09)'; c.lineWidth = 1; c.beginPath();
+  c.strokeStyle = 'rgba(79,216,255,.18)'; c.lineWidth = 1; c.beginPath();
   for (let i = gx0; i <= gx1; i++) { c.moveTo(i * CELL, gy0 * CELL); c.lineTo(i * CELL, gy1 * CELL); }
   for (let j = gy0; j <= gy1; j++) { c.moveTo(gx0 * CELL, j * CELL); c.lineTo(gx1 * CELL, j * CELL); } c.stroke();
   c.strokeStyle = 'rgba(79,216,255,.6)'; c.lineWidth = 3; c.strokeRect(0, 0, SN * CELL, SN * CELL);
