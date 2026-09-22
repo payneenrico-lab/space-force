@@ -86,6 +86,7 @@
       <button id="cPhaser" class="wp">PHASER<small>P</small></button>
       <button id="cTorp" class="wp">TORPEDO<small>T</small></button>
       <button id="cMine" class="wp">LAUNCH MINE<small>L</small></button>
+      <button id="cMineSD" class="dg">MINE SELF DESTRUCT<small>B</small></button>
       <button id="cDisr" class="wp lk">DISRUPTOR<small>X</small></button>
       <button id="cNova" class="dg lk">NOVA TORPEDO<small>V</small></button>
       <button id="cJump">HYPERJUMP<small>J</small></button>
@@ -220,7 +221,8 @@ let U = null, H = null;
 const Q = (x, y) => U.Q[y][x], curQ = () => Q(H.qx, H.qy);
 function occupied(q, x, y) {
   return q.stars.some(s => s.x === x && s.y === y) || q.planets.some(p => p.x === x && p.y === y) || q.aliens.some(a => a.x === x && a.y === y) ||
-    q.stations.some(s => s.x === x && s.y === y) || q.mines.some(m => m.x === x && m.y === y) || (q.anom && q.anom.rocks && q.anom.rocks.some(r => r.x === x && r.y === y)) ||
+    q.stations.some(s => s.x === x && s.y === y) || q.mines.some(m => m.x === x && m.y === y) || q.debris.some(d => d.x === x && d.y === y) ||
+    (q.anom && q.anom.rocks && q.anom.rocks.some(r => r.x === x && r.y === y)) ||
     (q.anom && q.anom.x === x && q.anom.y === y) || (q === curQ() && H && H.x === x && H.y === y);
 }
 function freeCell(q, m = 0) { for (let i = 0; i < 400; i++) { const x = m + ri(SN - 2 * m), y = m + ri(SN - 2 * m); if (!occupied(q, x, y)) return { x, y }; } return { x: 0, y: 0 }; }
@@ -232,7 +234,7 @@ function newAlien(type, q, pos) {
 }
 function newGame() {
   U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
-  for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], anom: null, visited: false, hue: ri(360) }; }
+  for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], anom: null, visited: false, hue: ri(360) }; }
   H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
@@ -284,9 +286,10 @@ function blockerAt(q, x, y) {
     if (an.rocks) { const rk = an.rocks.find(r => r.x === x && r.y === y); if (rk) return { t: 'rock', o: rk }; }
     if (an.type === 'nest' && an.x === x && an.y === y) return { t: 'nest', o: an };
   }
+  const dr = q.debris.find(d => d.x === x && d.y === y); if (dr) return { t: 'rock', o: dr };   // planet debris behaves exactly like an asteroid
   const st = q.stations.find(s => s.x === x && s.y === y); if (st) return { t: 'station', o: st };
-  if (q.stars.some(s => s.x === x && s.y === y)) return { t: 'star' };
-  if (q.planets.some(p => p.x === x && p.y === y)) return { t: 'planet' };
+  const sr2 = q.stars.find(s => s.x === x && s.y === y); if (sr2) return { t: 'star', o: sr2 };
+  const pl2 = q.planets.find(p => p.x === x && p.y === y); if (pl2) return { t: 'planet', o: pl2 };
   return null;
 }
 const randDir = () => [1, 2, 3, 4, 6, 7, 8, 9][ri(8)];
@@ -368,6 +371,7 @@ function blastAt(q, x, y) {   // a mine explosion: destroys everything in the se
   fx(x, y, 'big', 1, 1.6); sfx.big(); U.shake = .5;
   for (const a of q.aliens.slice()) if (cheb(a.x, a.y, x, y) <= 1) killAlien(a);
   for (const s of q.stations.slice()) if (cheb(s.x, s.y, x, y) <= 1) hitStation(s, 150);   // stations take damage too
+  for (const rk of q.debris.slice()) if (cheb(rk.x, rk.y, x, y) <= 1) destroyRock(q, rk);
   if (q.anom) {
     if (q.anom.rocks) for (const rk of q.anom.rocks.slice()) if (cheb(rk.x, rk.y, x, y) <= 1) destroyRock(q, rk);
     if (q.anom.type === 'nest' && cheb(q.anom.x, q.anom.y, x, y) <= 1) damageNest(q, 120);
@@ -401,6 +405,7 @@ function cmd(name) {
   if (name === 'stop') return stopShip('ION DRIVE DISENGAGED.');
   if (name === 'sd') return selfDestruct();
   if (name === 'dock') return dock();
+  if (name === 'minesd') return enterMineSD();
   if (name === 'disr' && !H.disrUnlocked) return say('DISRUPTOR NOT YET UNLOCKED.', 'warn');
   if (name === 'nova' && !H.novaUnlocked) return say('NOVA TORPEDO NOT YET UNLOCKED.', 'warn');
   if (H.docking && ['phaser', 'torp', 'mine', 'disr', 'nova'].includes(name)) return say('WEAPONS OFFLINE WHILE DOCKED - PRESS D TO UNDOCK.', 'warn');
@@ -416,7 +421,7 @@ function heroDir(d) {
   if (U.sd) return;
   if (U.jm) return;
   const p = U.pending;
-  if (p && p.stage === 'dist') return;   // waiting for a distance number, not a direction
+  if (p && p.stage) return;   // waiting for a number (mine distance, or which mine to self-destruct), not a direction
   if (p) {
     U.pending = null;
     if (p.cmd === 'phaser') firePhaser(d); else if (p.cmd === 'torp') fireTorp(d); else if (p.cmd === 'mine') askMineDistance(d);
@@ -501,6 +506,20 @@ function launchMine(d, n) {
   H.mines--; const [vx, vy] = VEC[d];
   U.proj.push({ owner: 'hero', mine: true, x: H.x, y: H.y, vx, vy, sp: 4, dmg: 0, cx: H.x, cy: H.y, life: 15, left: n }); sfx.mine();
   say(`MINE LAUNCHED ${dirName(d)} FOR ${n} SECTOR${n > 1 ? 'S' : ''}.${n === 1 ? ' WARNING: IT WILL EXPLODE NEXT TO YOU!' : ''}`, n === 1 ? 'warn' : '');
+}
+// MINE SELF-DESTRUCT: press the button, then 1 or 2, to remotely detonate that mine in flight right where it currently is.
+function enterMineSD() {
+  const mines = U.proj.filter(p => p.mine && p.owner === 'hero');
+  if (!mines.length) return say('NO MINES IN FLIGHT TO SELF-DESTRUCT.', 'warn');
+  U.pending = { cmd: 'minesd', stage: 'pick', t: 8 }; sfx.click();
+}
+function mineSelfDestruct(n) {
+  U.pending = null;
+  const mines = U.proj.filter(p => p.mine && p.owner === 'hero'), m = mines[n - 1];
+  if (!m) return say(`NO MINE #${n} IN FLIGHT.`, 'warn');
+  const q = curQ(), i = U.proj.indexOf(m); if (i >= 0) U.proj.splice(i, 1);
+  say(`MINE #${n} SELF-DESTRUCTED.`, 'warn');
+  mineImpact(q, Math.round(m.x), Math.round(m.y), blockerAt(q, Math.round(m.x), Math.round(m.y)));
 }
 function selfDestruct() {
   if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); sfx.click(); return; }
@@ -680,7 +699,11 @@ function damageNest(q, d) {
   n.hp -= d; n.flash = .25; sfx.hit();
   if (n.hp <= 0) { fx(n.x, n.y, 'big', 1, 1.6); sfx.big(); U.shake = .5; q.anom = null; say('THE ALIEN NEST HAS BEEN DESTROYED!', 'good'); }
 }
-function destroyRock(q, rk) { const an = q.anom; if (!an || !an.rocks) return; const i = an.rocks.indexOf(rk); if (i >= 0) { an.rocks.splice(i, 1); fx(rk.x, rk.y, 'boom', .5, .7); sfx.boom(); } }
+function destroyRock(q, rk) {   // a rock is either an asteroid-field piece or planet debris - remove it from whichever array holds it
+  const an = q.anom, i = an && an.rocks ? an.rocks.indexOf(rk) : -1;
+  if (i >= 0) { an.rocks.splice(i, 1); fx(rk.x, rk.y, 'boom', .5, .7); sfx.boom(); return; }
+  const j = q.debris.indexOf(rk); if (j >= 0) { q.debris.splice(j, 1); fx(rk.x, rk.y, 'boom', .5, .7); sfx.boom(); }
+}
 function pullToHole(e, hole, isHero) {
   const nx = e.x + Math.sign(hole.x - e.x), ny = e.y + Math.sign(hole.y - e.y); if (nx === e.x && ny === e.y) return;
   const b = blockerAt(curQ(), nx, ny); if (b && !(isHero && b.t === 'hero')) return;
@@ -787,6 +810,7 @@ function novaBlast(q, x, y) {   // the nova torpedo: a much bigger, far deadlier
   fx(x, y, 'big', 1.4, 2.6); sfx.novaHit(); U.shake = 1;
   for (const a of q.aliens.slice()) if (cheb(a.x, a.y, x, y) <= 2) killAlien(a);
   for (const s of q.stations.slice()) if (cheb(s.x, s.y, x, y) <= 2) hitStation(s, 300);
+  for (const rk of q.debris.slice()) if (cheb(rk.x, rk.y, x, y) <= 2) destroyRock(q, rk);
   if (q.anom) {
     if (q.anom.rocks) for (const rk of q.anom.rocks.slice()) if (cheb(rk.x, rk.y, x, y) <= 2) destroyRock(q, rk);
     if (q.anom.type === 'nest' && cheb(q.anom.x, q.anom.y, x, y) <= 2) damageNest(q, 260);
@@ -794,8 +818,44 @@ function novaBlast(q, x, y) {   // the nova torpedo: a much bigger, far deadlier
   if (q === curQ() && cheb(H.x, H.y, x, y) <= 2) { say('CAUGHT IN YOUR OWN NOVA BLAST!', 'bad'); hitHero(180); }
   for (const o of q.mines.slice()) if (cheb(o.x, o.y, x, y) <= 2) detonate(q, o);
 }
+// A planet struck by a mine shatters into debris scattered across the impact sector and a few nearby ones. The debris behaves
+// exactly like an asteroid field's rocks: it blocks movement and shots, and a torpedo/mine/nova can blast a piece apart.
+function shatterPlanet(q, x, y, planet) {
+  const i = q.planets.indexOf(planet); if (i >= 0) q.planets.splice(i, 1);
+  fx(x, y, 'boom', 1, 1.6); sfx.big();
+  say('A PLANET WAS SHATTERED BY THE MINE! DEBRIS NOW LITTERS THE AREA.', 'bad');
+  const cells = [[x, y]];
+  for (let n = 0; n < 6; n++) {
+    const ang = rnd() * 6.283, r = 1 + rnd() * 2.4, nx = x + Math.round(Math.cos(ang) * r), ny = y + Math.round(Math.sin(ang) * r);
+    if (nx < 0 || ny < 0 || nx >= SN || ny >= SN || occupied(q, nx, ny)) continue;
+    cells.push([nx, ny]);
+  }
+  for (const [dx, dy] of cells) q.debris.push({ x: dx, y: dy, seed: ri(1000) });
+}
+// A mine that strikes a star triggers a supernova: everything within 4 sectors is destroyed, and the star itself is gone.
+function supernova(q, x, y, star) {
+  const i = q.stars.indexOf(star); if (i >= 0) q.stars.splice(i, 1);
+  fx(x, y, 'big', 2, 4.5); sfx.novaHit(); U.shake = 1.4;
+  say(`SUPERNOVA! A STAR HAS GONE NOVA AT SECTOR ${x + 1},${y + 1} - DEVASTATION FOR 4 SECTORS AROUND!`, 'bad');
+  for (const a of q.aliens.slice()) if (cheb(a.x, a.y, x, y) <= 4) killAlien(a);
+  for (const s of q.stations.slice()) if (cheb(s.x, s.y, x, y) <= 4) hitStation(s, 500);
+  for (const rk of q.debris.slice()) if (cheb(rk.x, rk.y, x, y) <= 4) destroyRock(q, rk);
+  for (const pl of q.planets.slice()) if (cheb(pl.x, pl.y, x, y) <= 4) shatterPlanet(q, pl.x, pl.y, pl);
+  if (q.anom) {
+    if (q.anom.rocks) for (const rk of q.anom.rocks.slice()) if (cheb(rk.x, rk.y, x, y) <= 4) destroyRock(q, rk);
+    if (q.anom.type === 'nest' && cheb(q.anom.x, q.anom.y, x, y) <= 4) damageNest(q, 500);
+  }
+  if (q === curQ() && cheb(H.x, H.y, x, y) <= 4) { say('CAUGHT IN THE SUPERNOVA!', 'bad'); hitHero(320); }
+  for (const o of q.mines.slice()) if (cheb(o.x, o.y, x, y) <= 4) detonate(q, o);
+}
+// Routes a mine's impact to the right outcome: a supernova (star), shattering (planet), or an ordinary blast.
+function mineImpact(q, x, y, hit) {
+  if (hit && hit.t === 'star') return supernova(q, x, y, hit.o);
+  if (hit && hit.t === 'planet') { blastAt(q, x, y); shatterPlanet(q, x, y, hit.o); return; }   // explodes normally first, then the debris settles (so the blast doesn't destroy its own debris)
+  blastAt(q, x, y);
+}
 function updateProj(p, dt) {
-  const q = curQ(); p.life -= dt; if (p.life <= 0) { U.proj.splice(U.proj.indexOf(p), 1); const ex = Math.max(0, Math.min(SN - 1, Math.round(p.x))), ey = Math.max(0, Math.min(SN - 1, Math.round(p.y))); if (p.mine) blastAt(q, ex, ey); else if (p.nova) novaBlast(q, ex, ey); return; }
+  const q = curQ(); p.life -= dt; if (p.life <= 0) { U.proj.splice(U.proj.indexOf(p), 1); const ex = Math.max(0, Math.min(SN - 1, Math.round(p.x))), ey = Math.max(0, Math.min(SN - 1, Math.round(p.y))); if (p.mine) mineImpact(q, ex, ey, blockerAt(q, ex, ey)); else if (p.nova) novaBlast(q, ex, ey); return; }
   p.x += p.vx * p.sp * dt; p.y += p.vy * p.sp * dt;
   const rm = () => { const i = U.proj.indexOf(p); if (i >= 0) U.proj.splice(i, 1); };
   const hole = q.anom && q.anom.type === 'hole' ? q.anom : null;   // black hole: bends torpedoes toward it and swallows them
@@ -807,17 +867,18 @@ function updateProj(p, dt) {
   const cx = Math.round(p.x), cy = Math.round(p.y);
   if (cx === p.cx && cy === p.cy) return; p.cx = cx; p.cy = cy;
   if (p.mine) p.left--;
-  if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) { rm(); const ex = Math.max(0, Math.min(SN - 1, cx)), ey = Math.max(0, Math.min(SN - 1, cy)); if (p.mine) blastAt(q, ex, ey); else if (p.nova) novaBlast(q, ex, ey); return; }
+  if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) { rm(); const ex = Math.max(0, Math.min(SN - 1, cx)), ey = Math.max(0, Math.min(SN - 1, cy)); if (p.mine) mineImpact(q, ex, ey, blockerAt(q, ex, ey)); else if (p.nova) novaBlast(q, ex, ey); return; }
   const m = q.mines.find(m => m.x === cx && m.y === cy); if (m) { rm(); return detonate(q, m); }
   const an = q.anom;   // radiation cloud: the torpedo either explodes or is deflected in a random direction
   if (an && an.type === 'radiat' && an.x === cx && an.y === cy) {
     const roll = rnd();
-    if (roll < 1 / 3) { rm(); if (p.mine) blastAt(q, cx, cy); else if (p.nova) novaBlast(q, cx, cy); else radBlast(q, cx, cy); return; }
+    if (roll < 1 / 3) { rm(); if (p.mine) mineImpact(q, cx, cy, blockerAt(q, cx, cy)); else if (p.nova) novaBlast(q, cx, cy); else radBlast(q, cx, cy); return; }
     if (roll < 2 / 3) { const d = randDir(); p.vx = VEC[d][0]; p.vy = VEC[d][1]; p.x = cx; p.y = cy; p.deflected = true; fx(cx, cy, 'spark', .4, .8); sfx.ping(); return; }
     // otherwise: no effect, the torpedo flies straight on
   }
   if (p.mine) {   // a launched mine explodes on hitting any ship or obstacle, or when it reaches the end of its run
-    if (blockerAt(q, cx, cy) || p.left <= 0) { rm(); blastAt(q, cx, cy); }
+    const hit = blockerAt(q, cx, cy);
+    if (hit || p.left <= 0) { rm(); mineImpact(q, cx, cy, hit); }
     return;
   }
   if (p.nova) {   // the nova torpedo detonates in a massive blast on hitting anything at all
@@ -1002,12 +1063,14 @@ function drawAnomLayer(q, t) {
   if (['storm', 'radiat', 'worm', 'depot'].includes(an.type)) drawAnom(c, an, x, y, t);
   else label(an.type === 'nebula' || an.type === 'timewarp' || an.type === 'minefield' || an.type === 'hole' ? -3.6 * CELL + 6 : 30);
 }
+function drawRock(rk) {   // an asteroid-field piece, or a chunk of planet debris - same look either way
+  c.save(); c.translate(cx(rk.x), cx(rk.y)); c.rotate(rk.seed); c.fillStyle = `hsl(30,${15 + rk.seed % 15}%,${36 + rk.seed % 14}%)`; c.beginPath();
+  for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283, r = 11 + ((rk.seed * (i + 3)) % 7) - 3; c.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+  c.closePath(); c.fill(); c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1.2; c.stroke(); c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.arc(3, 2, 3, 0, 6.3); c.fill(); c.restore();
+}
 function drawExtras(q, t) {
-  if (q.anom && q.anom.rocks) for (const rk of q.anom.rocks) {
-    c.save(); c.translate(cx(rk.x), cx(rk.y)); c.rotate(rk.seed); c.fillStyle = `hsl(30,${15 + rk.seed % 15}%,${36 + rk.seed % 14}%)`; c.beginPath();
-    for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283, r = 11 + ((rk.seed * (i + 3)) % 7) - 3; c.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
-    c.closePath(); c.fill(); c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 1.2; c.stroke(); c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.arc(3, 2, 3, 0, 6.3); c.fill(); c.restore();
-  }
+  if (q.anom && q.anom.rocks) for (const rk of q.anom.rocks) drawRock(rk);
+  for (const rk of q.debris) drawRock(rk);
   for (const s of q.stations) {
     const x = cx(s.x), y = cx(s.y), ready = s.readyAt <= U.t;
     c.save(); c.translate(x, y);
@@ -1113,7 +1176,8 @@ function drawMini(t, cam) {
   c.fillStyle = '#ffd54d'; for (const s of q.stars) c.fillRect(s.x * k, s.y * k, d, d);
   c.fillStyle = '#6fb8ff'; for (const p of q.planets) c.fillRect(p.x * k - .5, p.y * k - .5, d + 1, d + 1);
   c.fillStyle = '#4fd8ff'; for (const s of q.stations) { c.fillRect(s.x * k - 1, s.y * k - 1, d + 2, d + 2); if (big) { c.font = 'bold 10px "Courier New"'; c.textAlign = 'left'; c.fillText('STATION', s.x * k + 8, s.y * k + 4); } }
-  if (q.anom && q.anom.rocks) { c.fillStyle = '#a08c70'; for (const r of q.anom.rocks) c.fillRect(r.x * k, r.y * k, d, d); }
+  c.fillStyle = '#a08c70'; if (q.anom && q.anom.rocks) for (const r of q.anom.rocks) c.fillRect(r.x * k, r.y * k, d, d);
+  for (const r of q.debris) c.fillRect(r.x * k, r.y * k, d, d);
   if (big && q.anom && q.anom.known && ['nebula', 'timewarp'].includes(q.anom.type)) { c.fillStyle = 'rgba(185,123,255,.13)'; c.fillRect((q.anom.x - 4) * k, (q.anom.y - 4) * k, 9 * k, 9 * k); }
   if (q.anom) { c.fillStyle = '#c08bff'; c.fillRect(q.anom.x * k - 1, q.anom.y * k - 1, d + 2, d + 2); if (big) { c.font = 'bold 10px "Courier New"'; c.textAlign = 'left'; c.fillText(q.anom.known ? ANOM[q.anom.type].name : '?', q.anom.x * k + 8, q.anom.y * k + 8); } }
   for (const m of q.mines) { if (m.owner === 'hero') { c.fillStyle = '#4fd8ff'; c.fillRect(m.x * k, m.y * k, d, d); } else if (cheb(m.x, m.y, H.x, H.y) <= 3) { c.fillStyle = '#ff4d5e'; c.fillRect(m.x * k, m.y * k, d, d); } }
@@ -1178,13 +1242,15 @@ function updateHUD() {
   else if (U.jm) p = 'HYPERJUMP: PRESS A NUMBER 1-9 (0 = 10) FOR THE NUMBER OF SECTORS. DIRECTION IS RANDOM - YOU MAY LAND IN ANOTHER QUADRANT. ESC CANCELS.';
   else if (H.jump) p = 'HYPERDRIVE CHARGING...';
   else if (U.pending && U.pending.stage === 'dist') p = `MINE ${dirName(U.pending.dir)}: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY SECTORS IT TRAVELS BEFORE EXPLODING. 1 WILL BLAST YOU TOO!`;
+  else if (U.pending && U.pending.stage === 'pick') p = `MINE SELF DESTRUCT: PRESS 1 OR 2 TO CHOOSE WHICH MINE IN FLIGHT TO DETONATE (${U.proj.filter(pr => pr.mine && pr.owner === 'hero').length} IN FLIGHT).`;
   else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9)', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.collision) p = `⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD! CHANGE COURSE (NUMPAD) OR STOP (S).`;
   else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S STOPS.`;
   else p = 'READY. I = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   D = DOCK   H = HELP';
   $('prompt').textContent = p;
   $('distv').textContent = H.dist; $('distc').textContent = 'ENERGY COST ' + driveCost(H.dist);
-  $('jnums').style.display = (U.jm || (U.pending && U.pending.stage === 'dist')) ? 'grid' : 'none';
+  $('jnums').style.display = (U.jm || (U.pending && U.pending.stage)) ? 'grid' : 'none';
+  for (const b of document.querySelectorAll('#jnums [data-n]')) b.style.display = (U.pending && U.pending.stage === 'pick' && +b.dataset.n > 2) ? 'none' : '';
 }
 function showOverlay(t, m, b, cb) { $('ovT').textContent = t; $('ovM').textContent = m; $('ovB').textContent = b; $('overlay').style.display = 'flex'; $('ovB').onclick = () => { initAudio(); $('overlay').style.display = 'none'; cb(); }; }
 const HELP = `GOAL: destroy every alien ship hiding in the 8x8 galaxy of quadrants. Each quadrant is 32x32 sectors, so the main screen shows a 16x16 window that follows your ship.
@@ -1205,9 +1271,11 @@ PROMOTION: destroying aliens earns commendations. Reach LEVEL 3 to unlock the DI
 DISRUPTOR (X) + direction - unlocked at level 3: a piercing beam that punches through EVERY ship on its line, not just the first. Stronger than the phaser. Max 2 beams, more energy per shot.
 NOVA TORPEDO (V) + direction - unlocked at level 6: the most lethal weapon aboard. Detonates on hitting anything, annihilating every ship for 2 sectors around outright. Only 2 are carried and they cannot be restocked, so use them wisely.
 MINE (L) + direction + a number 1-9 (0 = 10): launches a mine that travels that many sectors. It explodes at the end of its run, or as soon as it hits a ship or any obstacle. The blast destroys everything in that sector and all 8 around it - alien ships, rocks and nests, and it damages space stations. A distance of 1 will blast you too! Max 2 mines in flight.
+ If a mine hits a STAR it triggers a SUPERNOVA - total devastation for 4 sectors around, and the star itself is gone. If a mine hits a PLANET, the planet is shattered and its remains become DEBRIS scattered across the impact area - the debris blocks movement and shots just like an asteroid, and can be blasted apart with a torpedo, mine or nova.
 Alien minelayers still drop static mines that sit in space until something touches them (or a beam or torpedo hits them).
+MINE SELF DESTRUCT (B), then 1 or 2: remotely detonates one of your mines already in flight, right where it currently is - including triggering a supernova or shattering a planet if that's what it's sitting over.
 HYPERJUMP (J) + a number 1-9 (0 = 10): jumps that many sectors in a RANDOM direction after a 2 second spool-up. You may end up in another quadrant. Costs more energy the further you jump.
-SELF DESTRUCT (K): 5 second countdown, then everything in the quadrant is destroyed - including you. Press K again to cancel.
+SELF DESTRUCT (K): a LAST RESORT weapon. 5 second countdown, then everything in the quadrant is destroyed - including you. Press K again to cancel.
 SPACE pauses. Weapons work while moving.
 
 DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines.
@@ -1240,10 +1308,14 @@ addEventListener('keydown', e => {
     const m = /^(?:Digit|Numpad)(\d)$/.exec(k);
     if (m) { e.preventDefault(); launchMine(U.pending.dir, +m[1] || 10); return; }
   }
+  if (U.pending && U.pending.stage === 'pick') {   // mine self-destruct: a number key (1 or 2) picks which mine
+    const m = /^(?:Digit|Numpad)([12])$/.exec(k);
+    if (m) { e.preventDefault(); mineSelfDestruct(+m[1]); return; }
+  }
   if (dd) { e.preventDefault(); heroDir(dd); return; }
   switch (k) {
     case 'KeyI': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyL': cmd('mine'); break;
-    case 'KeyX': cmd('disr'); break; case 'KeyV': cmd('nova'); break;
+    case 'KeyX': cmd('disr'); break; case 'KeyV': cmd('nova'); break; case 'KeyB': cmd('minesd'); break;
     case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
     case 'KeyD': cmd('dock'); break;
     case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break; case 'KeyS': cmd('stop'); break; case 'KeyH': cmd('help'); break;
@@ -1256,9 +1328,9 @@ function setDist(v) { H.dist = Math.max(1, Math.min(40, v)); $('dist').value = H
 $('dist').oninput = e => { H.dist = +e.target.value; };
 for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () => { initAudio(); heroDir(+b.dataset.d); };
 $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
-for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
+for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
 $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
-for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); };
+for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); else if (U.pending && U.pending.stage === 'pick') mineSelfDestruct(+b.dataset.n); };
 lr.addEventListener('pointerdown', e => {
   initAudio(); if (!U) return; const r = lr.getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / r.width * GN), y = Math.floor((e.clientY - r.top) / r.height * GN);
   const q = Q(x, y), sc = isScanned(x, y), i = sc ? qInfo(q) : q.mem, fmt = i => `${i.al} ALIEN${i.al === 1 ? '' : 'S'}, ${i.st} STARS, ${i.pl} PLANETS, ${i.sn} STATION${i.sn === 1 ? '' : 'S'}.`;
