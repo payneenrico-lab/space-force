@@ -819,15 +819,16 @@ function novaBlast(q, x, y) {   // the nova torpedo: a much bigger, far deadlier
   if (q === curQ() && cheb(H.x, H.y, x, y) <= 2) { say('CAUGHT IN YOUR OWN NOVA BLAST!', 'bad'); hitHero(180); }
   for (const o of q.mines.slice()) if (cheb(o.x, o.y, x, y) <= 2) detonate(q, o);
 }
-// A planet struck by a mine shatters into debris scattered across the impact sector and a few nearby ones. The debris behaves
-// exactly like an asteroid field's rocks: it blocks movement and shots, and a torpedo/mine/nova can blast a piece apart.
-function shatterPlanet(q, x, y, planet) {
+// A planet struck by a mine (or, far worse, a nova torpedo) shatters into debris scattered across the impact sector and several
+// nearby ones. The debris behaves exactly like an asteroid field's rocks: it blocks movement and shots, and a torpedo/mine/nova
+// can blast a piece apart. A nova hit does much more damage to the planet, leaving a bigger, wider-spread debris field.
+function shatterPlanet(q, x, y, planet, big) {
   const i = q.planets.indexOf(planet); if (i >= 0) q.planets.splice(i, 1);
-  fx(x, y, 'boom', 1, 1.6); sfx.big();
-  say('A PLANET WAS SHATTERED BY THE MINE! DEBRIS NOW LITTERS THE AREA.', 'bad');
-  const cells = [[x, y]];
-  for (let n = 0; n < 6; n++) {
-    const ang = rnd() * 6.283, r = 1 + rnd() * 2.4, nx = x + Math.round(Math.cos(ang) * r), ny = y + Math.round(Math.sin(ang) * r);
+  fx(x, y, 'boom', big ? 1.6 : 1, big ? 2.4 : 1.6); sfx.big();
+  say(big ? 'THE NOVA TORPEDO OBLITERATED THE PLANET! A HUGE DEBRIS FIELD NOW LITTERS THE AREA.' : 'A PLANET WAS SHATTERED BY THE MINE! DEBRIS NOW LITTERS THE AREA.', 'bad');
+  const cells = [[x, y]], extra = big ? 14 : 6, maxR = big ? 4.2 : 2.4;
+  for (let n = 0; n < extra; n++) {
+    const ang = rnd() * 6.283, r = 1 + rnd() * maxR, nx = x + Math.round(Math.cos(ang) * r), ny = y + Math.round(Math.sin(ang) * r);
     if (nx < 0 || ny < 0 || nx >= SN || ny >= SN || occupied(q, nx, ny)) continue;
     cells.push([nx, ny]);
   }
@@ -855,8 +856,14 @@ function mineImpact(q, x, y, hit) {
   if (hit && hit.t === 'planet') { blastAt(q, x, y); shatterPlanet(q, x, y, hit.o); return; }   // explodes normally first, then the debris settles (so the blast doesn't destroy its own debris)
   blastAt(q, x, y);
 }
+// Same idea for a nova torpedo, but the planet hit is far more destructive - a bigger blast first, then a much larger debris field.
+function novaImpact(q, x, y, hit) {
+  if (hit && hit.t === 'star') return supernova(q, x, y, hit.o);
+  if (hit && hit.t === 'planet') { novaBlast(q, x, y); shatterPlanet(q, x, y, hit.o, true); return; }
+  novaBlast(q, x, y);
+}
 function updateProj(p, dt) {
-  const q = curQ(); p.life -= dt; if (p.life <= 0) { U.proj.splice(U.proj.indexOf(p), 1); const ex = Math.max(0, Math.min(SN - 1, Math.round(p.x))), ey = Math.max(0, Math.min(SN - 1, Math.round(p.y))); if (p.mine) mineImpact(q, ex, ey, blockerAt(q, ex, ey)); else if (p.nova) novaBlast(q, ex, ey); return; }
+  const q = curQ(); p.life -= dt; if (p.life <= 0) { U.proj.splice(U.proj.indexOf(p), 1); const ex = Math.max(0, Math.min(SN - 1, Math.round(p.x))), ey = Math.max(0, Math.min(SN - 1, Math.round(p.y))); if (p.mine) mineImpact(q, ex, ey, blockerAt(q, ex, ey)); else if (p.nova) novaImpact(q, ex, ey, blockerAt(q, ex, ey)); return; }
   p.x += p.vx * p.sp * dt; p.y += p.vy * p.sp * dt;
   const rm = () => { const i = U.proj.indexOf(p); if (i >= 0) U.proj.splice(i, 1); };
   const hole = q.anom && q.anom.type === 'hole' ? q.anom : null;   // black hole: bends torpedoes toward it and swallows them
@@ -868,12 +875,12 @@ function updateProj(p, dt) {
   const cx = Math.round(p.x), cy = Math.round(p.y);
   if (cx === p.cx && cy === p.cy) return; p.cx = cx; p.cy = cy;
   if (p.mine) p.left--;
-  if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) { rm(); const ex = Math.max(0, Math.min(SN - 1, cx)), ey = Math.max(0, Math.min(SN - 1, cy)); if (p.mine) mineImpact(q, ex, ey, blockerAt(q, ex, ey)); else if (p.nova) novaBlast(q, ex, ey); return; }
+  if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) { rm(); const ex = Math.max(0, Math.min(SN - 1, cx)), ey = Math.max(0, Math.min(SN - 1, cy)); if (p.mine) mineImpact(q, ex, ey, blockerAt(q, ex, ey)); else if (p.nova) novaImpact(q, ex, ey, blockerAt(q, ex, ey)); return; }
   const m = q.mines.find(m => m.x === cx && m.y === cy); if (m) { rm(); return detonate(q, m); }
   const an = q.anom;   // radiation cloud: the torpedo either explodes or is deflected in a random direction
   if (an && an.type === 'radiat' && an.x === cx && an.y === cy) {
     const roll = rnd();
-    if (roll < 1 / 3) { rm(); if (p.mine) mineImpact(q, cx, cy, blockerAt(q, cx, cy)); else if (p.nova) novaBlast(q, cx, cy); else radBlast(q, cx, cy); return; }
+    if (roll < 1 / 3) { rm(); if (p.mine) mineImpact(q, cx, cy, blockerAt(q, cx, cy)); else if (p.nova) novaImpact(q, cx, cy, blockerAt(q, cx, cy)); else radBlast(q, cx, cy); return; }
     if (roll < 2 / 3) { const d = randDir(); p.vx = VEC[d][0]; p.vy = VEC[d][1]; p.x = cx; p.y = cy; p.deflected = true; fx(cx, cy, 'spark', .4, .8); sfx.ping(); return; }
     // otherwise: no effect, the torpedo flies straight on
   }
@@ -883,7 +890,8 @@ function updateProj(p, dt) {
     return;
   }
   if (p.nova) {   // the nova torpedo detonates in a massive blast on hitting anything at all
-    if (blockerAt(q, cx, cy)) { rm(); novaBlast(q, cx, cy); }
+    const hit = blockerAt(q, cx, cy);
+    if (hit) { rm(); novaImpact(q, cx, cy, hit); }
     return;
   }
   const b = blockerAt(q, cx, cy); if (!b) return;
@@ -1271,6 +1279,7 @@ TORPEDO (T) + direction: slow, powerful. Limited supply, max 2 in flight.
 PROMOTION: destroying aliens earns commendations. Reach LEVEL 3 to unlock the DISRUPTOR, and LEVEL 6 to unlock the NOVA TORPEDO.
 DISRUPTOR (X) + direction - unlocked at level 3: a piercing beam that punches through EVERY ship on its line, not just the first. Stronger than the phaser. Max 2 beams, more energy per shot.
 NOVA TORPEDO (V) + direction - unlocked at level 6: the most lethal weapon aboard. Detonates on hitting anything, annihilating every ship for 2 sectors around outright. Only 2 are carried and they cannot be restocked, so use them wisely.
+ Like a mine, a nova hitting a STAR triggers a SUPERNOVA. Hitting a PLANET does far more damage than a mine - the planet is obliterated, leaving a much bigger, wider-spread debris field.
 MINE (L) + direction + a number 1-9 (0 = 10): launches a mine that travels that many sectors. It explodes at the end of its run, or as soon as it hits a ship or any obstacle. The blast destroys everything in that sector and all 8 around it - alien ships, rocks and nests, and it damages space stations. A distance of 1 will blast you too! Max 2 mines in flight.
  If a mine hits a STAR it triggers a SUPERNOVA - total devastation for 4 sectors around, and the star itself is gone. If a mine hits a PLANET, the planet is shattered and its remains become DEBRIS scattered across the impact area - the debris blocks movement and shots just like an asteroid, and can be blasted apart with a torpedo, mine or nova.
 Alien minelayers still drop static mines that sit in space until something touches them (or a beam or torpedo hits them).
