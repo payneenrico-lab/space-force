@@ -12,14 +12,24 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; min-height: 100%; background: var(--bg); color: #cfe8ff; font: 13px/1.35 "Courier New", monospace;
                -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
-  #app { max-width: 1180px; margin: 0 auto; padding: 8px calc(8px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
-         display: grid; gap: 8px; grid-template-columns: 1fr; }
-  @media (min-width: 980px) { #app { grid-template-columns: minmax(0, 1.25fr) minmax(340px, 1fr); align-items: start; } }
-  h1 { margin: 0; font-size: 15px; letter-spacing: 3px; color: var(--cyan); grid-column: 1 / -1; display: flex; justify-content: space-between; }
+  #app { max-width: 1260px; margin: 0 auto; padding: 8px calc(8px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+         display: grid; gap: 8px; grid-template-columns: 1fr;
+         grid-template-areas: "h" "main" "ctl" "side"; }
+  @media (min-width: 980px) {
+    #app { grid-template-columns: 210px minmax(0, 1.05fr) minmax(320px, 1fr); align-items: start;
+           grid-template-areas: "h h h" "ctl main side"; }
+    #controls #jnums { grid-template-columns: repeat(5, 1fr); }
+    #controls #ctl { grid-template-columns: 1fr; justify-items: center; }
+    #controls #compass { margin: 0 auto; }
+  }
+  h1 { grid-area: h; margin: 0; font-size: 15px; letter-spacing: 3px; color: var(--cyan); display: flex; justify-content: space-between; }
   h1 small { color: #6f8fb5; letter-spacing: 1px; font-weight: normal; }
-  #stage { position: relative; }
+  #controls { grid-area: ctl; } #mainCol { grid-area: main; } #side { grid-area: side; }
+  #stage { position: relative; max-width: min(480px, 90%); margin: 0 auto; }
+  @media (min-width: 980px) { #stage { max-width: none; } }
   canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #000; touch-action: manipulation; }
-  #sr { aspect-ratio: 1; } #lr { aspect-ratio: 1; max-width: 420px; margin: 0 auto; }
+  #sr { aspect-ratio: 1; } #lr { aspect-ratio: 1; max-width: min(300px, 88%); margin: 0 auto; }
+  @media (min-width: 980px) { #lr { max-width: 420px; } }
   .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin-top: 8px; }
   .lbl { font-size: 10px; color: #6f8fb5; letter-spacing: 1px; }
   .bars { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
@@ -52,11 +62,7 @@
 <body>
 <div id="app">
   <h1>SPACE FORCE <small>REAL-TIME QUADRANT COMBAT</small></h1>
-  <div>
-    <div id="stage">
-      <canvas id="sr" width="1408" height="1408"></canvas>
-      <div id="overlay"><div class="card"><h2 id="ovT"></h2><pre id="ovM"></pre><button id="ovB" class="go">LAUNCH</button></div></div>
-    </div>
+  <div id="controls">
     <div id="ctl" class="box">
       <div>
         <div class="dl"><span class="lbl">ION DRIVE DISTANCE</span><b id="distv">6</b></div>
@@ -74,7 +80,7 @@
       <button id="cMove" class="go">ION DRIVE<small>M</small></button>
       <button id="cPhaser" class="wp">PHASER<small>P</small></button>
       <button id="cTorp" class="wp">TORPEDO<small>T</small></button>
-      <button id="cMine" class="wp">LAY MINE<small>L</small></button>
+      <button id="cMine" class="wp">LAUNCH MINE<small>L</small></button>
       <button id="cJump">HYPERJUMP<small>J</small></button>
       <button id="cSD" class="dg">SELF DESTRUCT<small>K</small></button>
       <button id="cDock" class="go">DOCK<small>D</small></button>
@@ -83,7 +89,13 @@
       <button id="cHelp">HELP<small>H</small></button>
     </div>
   </div>
-  <div>
+  <div id="mainCol">
+    <div id="stage">
+      <canvas id="sr" width="1408" height="1408"></canvas>
+      <div id="overlay"><div class="card"><h2 id="ovT"></h2><pre id="ovM"></pre><button id="ovB" class="go">LAUNCH</button></div></div>
+    </div>
+  </div>
+  <div id="side">
     <div class="lbl" style="text-align:center;margin-bottom:2px">LONG RANGE SCANNER &mdash; ADJACENT QUADRANTS (DASHED BOX)</div>
     <canvas id="lr" width="832" height="832"></canvas>
     <div class="box">
