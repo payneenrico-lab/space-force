@@ -60,6 +60,17 @@
      fully-scrollable top-down flow the moment it doesn't. */
   #overlay { position: absolute; inset: 0; display: none; background: rgba(2,4,12,.9); border-radius: 6px; padding: 14px; overflow-y: auto; }
   #overlay .card { max-width: 520px; margin: auto; } #overlay h2 { margin: 0 0 8px; letter-spacing: 3px; color: var(--cyan); }
+  #guideOverlay { position: absolute; inset: 0; display: none; background: rgba(2,4,12,.96); border-radius: 6px; padding: 12px; overflow-y: auto; }
+  #guideOverlay .ghead { position: sticky; top: -12px; margin: -12px -12px 10px; padding: 10px 12px; background: rgba(2,4,12,.98); border-bottom: 1px solid var(--line);
+                          display: flex; justify-content: space-between; align-items: center; z-index: 1; }
+  #guideOverlay h2 { margin: 0; letter-spacing: 2px; color: var(--cyan); font-size: 14px; }
+  #guideOverlay .gclose { padding: 6px 14px; }
+  #ggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 8px; }
+  .gcard { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+  .gcard canvas { width: 100%; aspect-ratio: 1; display: block; background: #010208; border-radius: 4px; border: 1px solid #162036; }
+  .gcard b { font-size: 10px; letter-spacing: .4px; }
+  .gcard .tag { font-size: 8px; padding: 1px 5px; border-radius: 8px; align-self: flex-start; letter-spacing: .4px; }
+  .gcard p { margin: 0; font-size: 9.5px; line-height: 1.35; color: #9fb3d6; }
   #overlay pre { margin: 0 0 10px; white-space: pre-wrap; font: 12px/1.4 "Courier New", monospace; color: var(--green); text-align: left; }
   #overlay button { padding: 12px 22px; }
 </style>
@@ -93,6 +104,7 @@
       <button id="cSD" class="dg">SELF DESTRUCT<small>K</small></button>
       <button id="cDock" class="go">DOCK<small>D</small></button>
       <button id="cScan">SCANNER<small>R</small></button>
+      <button id="cGuide">FIELD GUIDE<small>G</small></button>
       <button id="cPause">PAUSE<small>SPACE</small></button>
       <button id="cHelp">HELP<small>H</small></button>
     </div>
@@ -101,6 +113,10 @@
     <div id="stage">
       <canvas id="sr" width="1408" height="1408"></canvas>
       <div id="overlay"><div class="card"><h2 id="ovT"></h2><pre id="ovM"></pre><button id="ovB" class="go">LAUNCH</button></div></div>
+      <div id="guideOverlay">
+        <div class="ghead"><h2>ANOMALY FIELD GUIDE</h2><button id="gClose" class="gclose go">CLOSE</button></div>
+        <div id="ggrid"></div>
+      </div>
     </div>
   </div>
   <div id="side">
@@ -400,6 +416,7 @@ function cmd(name) {
   initAudio(); if (!U || U.over) return;
   if (U.sd && name !== 'sd') return;
   if (name === 'help') return showHelp();
+  if (name === 'guide') return guideOpen ? hideGuide() : showGuide();
   if (name === 'pause') { U.paused = !U.paused; if (U.paused) engineOff(); else if (H.moving) engineOn(); return; }
   if (U.paused) return;
   if (name === 'stop') return stopShip('ION DRIVE DISENGAGED.');
@@ -1261,7 +1278,7 @@ function updateHUD() {
   else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9)', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.collision) p = `⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD! CHANGE COURSE (NUMPAD) OR STOP (S).`;
   else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S STOPS.`;
-  else p = 'READY. I = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   D = DOCK   H = HELP';
+  else p = 'READY. I = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   D = DOCK   G = FIELD GUIDE   H = HELP';
   $('prompt').textContent = p;
   $('distv').textContent = H.dist; $('distc').textContent = 'ENERGY COST ' + driveCost(H.dist);
   $('jnums').style.display = (U.jm || (U.pending && U.pending.stage)) ? 'grid' : 'none';
@@ -1272,6 +1289,7 @@ const HELP = `GOAL: destroy every alien ship hiding in the 8x8 galaxy of quadran
 
 SHORT RANGE SCANNER: the small inset (top right of the main screen) shows the WHOLE quadrant - aliens, stars, planets, anomalies and mines (white box = what you can currently see). Press R to enlarge it.
 LONG RANGE SCANNER (galaxy map): reads your quadrant and the 8 ADJACENT quadrants live - aliens (skull), stars and planets in each. Quadrants further away show your last scan, dimmed. "???" means an anomaly is jamming the scanner - fly close to identify it.
+FIELD GUIDE (G): a visual reference showing every anomaly's identified sensor appearance and what it does, so you know what you're looking at before you fly into it.
 
 DIRECTIONS use the NUMPAD (or the top-row digits):
    7 NW   8 N   9 NE
@@ -1310,6 +1328,102 @@ ANOMALIES (each is hidden as ??? until you fly close):
 RADIATION CLOUD: flying into one triggers ONE random effect - a scrambled hyperjump to a random sector or quadrant, an energy drain, a shield drain, an energy surge, fully restored shields, the ship is CRIPPLED for up to 12 seconds (no drive, weapons or shields - enemy hits go straight to the hull), or nothing happens at all. Torpedoes entering a cloud either explode (hurting anything adjacent), are deflected in a random direction, or fly straight on; phaser beams either fizzle out, scatter in a random direction, or carry on unaffected. A deflected or scattered weapon can hit anything in its new path - including the ship that fired it!`;
 function showHelp() { if (U) U.paused = true; engineOff(); showOverlay('CONTROLS', HELP, 'CONTINUE', () => { if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); } }); }
 
+// ================================================================ anomaly field guide
+// A visual reference of every anomaly's identified sensor appearance, drawn with the same functions used in play
+// (drawAnom, drawMine, poly, the ANOM colour table) so it can never drift out of sync with the real thing.
+const GUIDE = [
+  { id: 'storm', tag: 'hazard', desc: 'Knocks 45% off your shields on contact. Lingers as a standing hazard.' },
+  { id: 'radiat', tag: 'volatile', desc: 'Triggers one of 7 random effects on your ship. Weapons entering it may explode, deflect or pass through.' },
+  { id: 'worm', tag: 'volatile', desc: 'Teleports you to a random sector in a random quadrant. No damage.' },
+  { id: 'depot', tag: 'resource', desc: 'Restocks torpedoes, mines, energy, hull and shields to full. One use.' },
+  { id: 'hole', tag: 'hazard', desc: 'Pulls ships and torpedoes in from 3 sectors away. The centre destroys anything, aliens included.' },
+  { id: 'nebula', tag: 'mixed', desc: 'Hides aliens from you beyond 2 sectors, and hides you from them beyond 3.' },
+  { id: 'asteroid', tag: 'hazard', desc: 'Rocks block movement and phasers. A torpedo, mine or nova shatters a piece apart.' },
+  { id: 'derelict', tag: 'mixed', desc: 'Salvage supplies or repairs - or spring a booby trap, or an alien ambush.' },
+  { id: 'timewarp', tag: 'volatile', desc: 'Everything inside runs slow or fast at random, flipping every few seconds.' },
+  { id: 'minefield', tag: 'hazard', desc: 'Hidden mines, seeded through the area, invisible beyond 3 sectors.' },
+  { id: 'nest', tag: 'hazard', desc: 'Spawns new alien ships until its shell is destroyed with phasers or torpedoes.' },
+];
+const TAG_COL = { hazard: '#ff5c6c', volatile: '#c9a4ff', resource: '#6cf0a8', mixed: '#ffd166' };
+const guideCtx = {};
+(function buildGuide() {
+  const grid = $('ggrid');
+  for (const g of GUIDE) {
+    const an = ANOM[g.id], col = TAG_COL[g.tag];
+    const card = document.createElement('div'); card.className = 'gcard';
+    card.innerHTML = `<canvas width="300" height="300"></canvas><b style="color:${an.col}">${an.name}</b>` +
+      `<span class="tag" style="color:${col};border:1px solid ${col};background:${col}22">${g.tag.toUpperCase()}</span><p>${g.desc}</p>`;
+    grid.appendChild(card);
+    const cv = card.querySelector('canvas'), gx = cv.getContext('2d'); gx.scale(2, 2);
+    guideCtx[g.id] = gx;
+  }
+})();
+function guideStars(gx, seed, t) {
+  gx.fillStyle = '#05060f'; gx.fillRect(-75, -75, 150, 150);
+  for (let i = 0; i < 16; i++) { const sx = ((i * 137.5 + seed) % 140) - 70, sy = ((i * 71.3 + seed) % 140) - 70; gx.globalAlpha = .2 + .25 * Math.abs(Math.sin(i + t)); gx.fillStyle = '#fff'; gx.fillRect(sx, sy, 1, 1); }
+  gx.globalAlpha = 1;
+}
+function paintGuideCard(gx, id, t) {
+  gx.save(); gx.translate(75, 75); guideStars(gx, id.length * 37, t);
+  if (['storm', 'radiat', 'worm', 'depot'].includes(id)) { drawAnom(gx, { type: id, known: true }, 0, 0, t); gx.restore(); return; }
+  if (id === 'hole') {
+    const gr = gx.createRadialGradient(0, 0, 8, 0, 0, 62); gr.addColorStop(0, 'rgba(255,138,61,.32)'); gr.addColorStop(1, 'rgba(255,138,61,0)');
+    gx.fillStyle = gr; gx.beginPath(); gx.arc(0, 0, 62, 0, 6.3); gx.fill();
+    for (let i = 0; i < 3; i++) { gx.strokeStyle = `rgba(255,${140 + i * 40},${60 + i * 60},${.8 - i * .18})`; gx.lineWidth = 3.2 - i * .7; gx.beginPath(); gx.ellipse(0, 0, 30 + i * 9, 11 + i * 3.5, t * .6 + i, 0, 6.3); gx.stroke(); }
+    gx.fillStyle = '#000'; gx.beginPath(); gx.arc(0, 0, 15, 0, 6.3); gx.fill(); gx.strokeStyle = '#ffb070'; gx.lineWidth = 1.4; gx.stroke();
+  } else if (id === 'nebula') {
+    for (let i = 0; i < 9; i++) {
+      const a = i * .7 + t * .08, px = Math.cos(a * 1.7 + i) * 37, py = Math.sin(a + i * 2) * 37;
+      const gr = gx.createRadialGradient(px, py, 3, px, py, 46); gr.addColorStop(0, 'rgba(185,123,255,.34)'); gr.addColorStop(1, 'rgba(185,123,255,0)');
+      gx.fillStyle = gr; gx.beginPath(); gx.arc(px, py, 46, 0, 6.3); gx.fill();
+    }
+    gx.fillStyle = 'rgba(230,210,255,.85)'; gx.font = '600 10px "Courier New"'; gx.textAlign = 'center'; gx.fillText('NEBULA', 0, 4);
+  } else if (id === 'asteroid') {
+    for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
+      if (!dx && !dy) continue; const r = Math.hypot(dx, dy); if (r > 2.3) continue;
+      const seed = ((dx + 5) * 13 + (dy + 5) * 7) % 1000; if (seed % 3 === 0 && r > .6) continue;
+      gx.save(); gx.translate(dx * 26, dy * 26); gx.rotate(seed); gx.scale(1.15, 1.15);
+      gx.fillStyle = `hsl(30,${15 + seed % 15}%,${36 + seed % 14}%)`; gx.beginPath();
+      for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283, rr = 11 + (seed * (i + 3) * 100 % 7) - 3; gx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+      gx.closePath(); gx.fill(); gx.strokeStyle = 'rgba(0,0,0,.45)'; gx.lineWidth = 1.2; gx.stroke(); gx.restore();
+    }
+  } else if (id === 'derelict') {
+    gx.save(); gx.rotate(Math.sin(t * .4) * .3 + .5); gx.scale(2.1, 2.1); gx.fillStyle = '#6b7688';
+    poly(gx, [[16, 0], [4, -6], [-10, -7], [-14, -2], [-12, 3], [-6, 8], [6, 6]]); gx.fill();
+    gx.strokeStyle = '#2a323c'; gx.lineWidth = .9; gx.stroke(); gx.fillStyle = '#2a323c'; gx.fillRect(-6, -2, 8, 3); gx.restore();
+    gx.fillStyle = 'rgba(190,200,215,.85)'; gx.font = '600 10px "Courier New"'; gx.textAlign = 'center'; gx.fillText('DERELICT SHIP', 0, 56);
+  } else if (id === 'timewarp') {
+    const fast = Math.floor(t / 4) % 2 === 1;
+    for (let i = 0; i < 4; i++) { const k = (((t * (fast ? .8 : -.5) + i / 4) % 1) + 1) % 1; gx.strokeStyle = fast ? `rgba(255,165,61,${1 - k})` : `rgba(79,216,255,${1 - k})`; gx.lineWidth = 2.2; gx.beginPath(); gx.arc(0, 0, 10 + k * 62, 0, 6.3); gx.stroke(); }
+    gx.fillStyle = fast ? '#ffa53d' : '#4fd8ff'; gx.font = 'bold 11px "Courier New"'; gx.textAlign = 'center'; gx.fillText(fast ? 'TIME: FAST' : 'TIME: SLOW', 0, 4);
+  } else if (id === 'minefield') {
+    gx.strokeStyle = 'rgba(255,106,106,.55)'; gx.lineWidth = 1.6; gx.setLineDash([7, 7]); gx.beginPath(); gx.arc(0, 0, 64, 0, 6.3); gx.stroke(); gx.setLineDash([]);
+    [[-22, -8], [18, -22], [-6, 20], [26, 14], [2, -2], [-32, 16]].forEach((p, i) => drawMine(gx, { owner: 'alien', arm: 0 }, p[0], p[1], t + i));
+    gx.fillStyle = 'rgba(255,150,150,.85)'; gx.font = '600 10px "Courier New"'; gx.textAlign = 'center'; gx.fillText('MINEFIELD', 0, 58);
+  } else if (id === 'nest') {
+    const pulse = 1 + Math.sin(t * 3) * .09;
+    gx.strokeStyle = '#3d8a3d'; gx.lineWidth = 2.3;
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + Math.sin(t + i) * .15; gx.beginPath(); gx.moveTo(Math.cos(a) * 12, Math.sin(a) * 12); gx.quadraticCurveTo(Math.cos(a + .4) * 24, Math.sin(a + .4) * 24, Math.cos(a) * 32, Math.sin(a) * 32); gx.stroke(); }
+    const gr = gx.createRadialGradient(-4, -4, 3, 0, 0, 20 * pulse); gr.addColorStop(0, '#c8ffb0'); gr.addColorStop(.6, '#3fae3f'); gr.addColorStop(1, '#1a4a2a');
+    gx.fillStyle = gr; gx.beginPath(); gx.arc(0, 0, 19 * pulse, 0, 6.3); gx.fill();
+    gx.fillStyle = '#ffe14d'; gx.beginPath(); gx.arc(-6, -3, 3.4, 0, 6.3); gx.arc(6, -3, 3.4, 0, 6.3); gx.fill();
+    gx.fillStyle = '#300'; gx.beginPath(); gx.arc(-6, -3, 1.4, 0, 6.3); gx.arc(6, -3, 1.4, 0, 6.3); gx.fill();
+    gx.fillStyle = 'rgba(190,255,175,.85)'; gx.font = '600 10px "Courier New"'; gx.textAlign = 'center'; gx.fillText('ALIEN NEST', 0, 56);
+  }
+  gx.restore();
+}
+let guideOpen = false;
+function showGuide() {
+  if (U) U.paused = true; engineOff();
+  $('overlay').style.display = 'none';
+  guideOpen = true; $('guideOverlay').style.display = 'block';
+}
+function hideGuide() {
+  guideOpen = false; $('guideOverlay').style.display = 'none';
+  if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); }
+}
+$('gClose').onclick = () => { initAudio(); hideGuide(); };
+
 // ================================================================ input
 const KEYDIR = { Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9, Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9 };
 addEventListener('keydown', e => {
@@ -1335,8 +1449,9 @@ addEventListener('keydown', e => {
     case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
     case 'KeyD': cmd('dock'); break;
     case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break; case 'KeyS': cmd('stop'); break; case 'KeyH': cmd('help'); break;
+    case 'KeyG': cmd('guide'); break;
     case 'Space': e.preventDefault(); cmd('pause'); break;
-    case 'Escape': if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } U.pending = null; U.jm = null; break;
+    case 'Escape': if (guideOpen) { hideGuide(); break; } if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } U.pending = null; U.jm = null; break;
     case 'Equal': case 'NumpadAdd': setDist(H.dist + 1); break; case 'Minus': case 'NumpadSubtract': setDist(H.dist - 1); break;
   }
 });
@@ -1344,7 +1459,7 @@ function setDist(v) { H.dist = Math.max(1, Math.min(40, v)); $('dist').value = H
 $('dist').oninput = e => { H.dist = +e.target.value; };
 for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () => { initAudio(); heroDir(+b.dataset.d); };
 $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
-for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
+for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cGuide', 'guide'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
 $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
 for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); else if (U.pending && U.pending.stage === 'pick') mineSelfDestruct(+b.dataset.n); };
 lr.addEventListener('pointerdown', e => {
@@ -1359,6 +1474,7 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min(.1, (now - last) / 1000); last = now;
   if (U) { update(dt); drawSR(now / 1000); drawLR(now / 1000); updateHUD(); }
+  if (guideOpen) for (const g of GUIDE) paintGuideCard(guideCtx[g.id], g.id, now / 1000);
   requestAnimationFrame(loop);
 }
 newGame();
