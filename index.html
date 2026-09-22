@@ -1202,7 +1202,9 @@ const isScanned = (x, y) => Math.abs(x - H.qx) <= 1 && Math.abs(y - H.qy) <= 1;
 function scanAround() {   // the long range scanner: current + adjacent quadrants are read live, and remembered as "last scan"
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     const x = H.qx + dx, y = H.qy + dy; if (x < 0 || y < 0 || x >= GN || y >= GN) continue;
-    const q = Q(x, y), i = qInfo(q); if (i) q.mem = { al: i.al, st: i.st, pl: i.pl, sn: i.sn, an: i.an ? i.an.type : null };
+    const q = Q(x, y), i = qInfo(q);
+    if (i) q.mem = { al: i.al, st: i.st, pl: i.pl, sn: i.sn, an: i.an ? i.an.type : null };
+    else if (q.anom && !q.anom.known) q.mem = { jammed: true };   // still unidentified, but remember that this sector was jammed
   }
 }
 function qInfo(q) {
@@ -1214,13 +1216,17 @@ function drawLR(t) {
   g.fillStyle = '#03040a'; g.fillRect(0, 0, GW, GW);
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y), px = x * GC, py = y * GC, here = x === H.qx && y === H.qy, sc = isScanned(x, y);
-    let info = null, dim = false;
-    if (sc) info = qInfo(q); else if (q.mem) { info = { al: q.mem.al, st: q.mem.st, pl: q.mem.pl, sn: q.mem.sn, an: q.mem.an ? { type: q.mem.an } : null }; dim = true; }
+    let info = null, dim = false, jammed = false;
+    if (sc) info = qInfo(q);
+    else if (q.mem) { if (q.mem.jammed) jammed = true; else { info = { al: q.mem.al, st: q.mem.st, pl: q.mem.pl, sn: q.mem.sn, an: q.mem.an ? { type: q.mem.an } : null }; dim = true; } }
     g.fillStyle = here ? 'rgba(79,216,255,.16)' : q.visited ? 'rgba(40,70,120,.22)' : 'rgba(20,30,60,.25)'; g.fillRect(px + 1, py + 1, GC - 2, GC - 2);
     g.strokeStyle = 'rgba(79,216,255,.18)'; g.strokeRect(px + .5, py + .5, GC - 1, GC - 1);
     g.font = '7px "Courier New"'; g.fillStyle = 'rgba(160,190,230,.45)'; g.textAlign = 'left'; g.fillText(`${x + 1},${y + 1}`, px + 3, py + 8);
     g.textAlign = 'left';
-    if (!info) { if (sc) { g.fillStyle = '#b08cff'; g.font = 'bold 15px "Courier New"'; g.textAlign = 'center'; g.fillText('???', px + GC / 2, py + GC / 2 + 8); } continue; }
+    if (!info) {   // jammed live, or remembered as jammed from an earlier visit (dimmed either way it's shown)
+      if (sc || jammed) { g.globalAlpha = jammed ? .5 : 1; g.fillStyle = '#b08cff'; g.font = 'bold 15px "Courier New"'; g.textAlign = 'center'; g.fillText('???', px + GC / 2, py + GC / 2 + 8); g.globalAlpha = 1; }
+      continue;
+    }
     g.font = 'bold 10px "Courier New"'; g.globalAlpha = dim ? .42 : 1;
     g.fillStyle = info.al ? '#ff6a7a' : '#4a4f66'; g.fillText('☠' + info.al, px + 5, py + 21);
     g.fillStyle = '#ffd54d'; g.fillText('★' + info.st, px + 5, py + 32); g.fillStyle = '#6fb8ff'; g.fillText('●' + info.pl, px + 5, py + 43);
@@ -1343,8 +1349,8 @@ $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); }
 for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); else if (U.pending && U.pending.stage === 'pick') mineSelfDestruct(+b.dataset.n); };
 lr.addEventListener('pointerdown', e => {
   initAudio(); if (!U) return; const r = lr.getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / r.width * GN), y = Math.floor((e.clientY - r.top) / r.height * GN);
-  const q = Q(x, y), sc = isScanned(x, y), i = sc ? qInfo(q) : q.mem, fmt = i => `${i.al} ALIEN${i.al === 1 ? '' : 'S'}, ${i.st} STARS, ${i.pl} PLANETS, ${i.sn} STATION${i.sn === 1 ? '' : 'S'}.`;
-  say(`QUADRANT ${x + 1},${y + 1}: ` + (sc ? (i ? fmt(i) : 'LONG RANGE SENSORS JAMMED BY AN ANOMALY. GET CLOSER.') : i ? 'LAST SCAN: ' + fmt(i) : 'OUT OF SCANNER RANGE (ADJACENT QUADRANTS ONLY).'));
+  const q = Q(x, y), sc = isScanned(x, y), i = sc ? qInfo(q) : (q.mem && !q.mem.jammed ? q.mem : null), fmt = i => `${i.al} ALIEN${i.al === 1 ? '' : 'S'}, ${i.st} STARS, ${i.pl} PLANETS, ${i.sn} STATION${i.sn === 1 ? '' : 'S'}.`;
+  say(`QUADRANT ${x + 1},${y + 1}: ` + (sc ? (i ? fmt(i) : 'LONG RANGE SENSORS JAMMED BY AN ANOMALY. GET CLOSER.') : i ? 'LAST SCAN: ' + fmt(i) : (q.mem && q.mem.jammed) ? 'LAST SCAN: SENSORS WERE JAMMED BY AN ANOMALY HERE.' : 'OUT OF SCANNER RANGE (ADJACENT QUADRANTS ONLY).'));
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden && U && !U.over && !U.paused) { U.paused = true; engineOff(); } });
 
