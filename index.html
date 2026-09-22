@@ -218,9 +218,9 @@ function newAlien(type, q, pos) {
   q.aliens.push(a);
 }
 function newGame() {
-  U = { Q: [], t: 0, nextId: 1, kills: 0, aliensLeft: 0, grace: 0, over: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0 };
+  U = { Q: [], t: 0, nextId: 1, kills: 0, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, dist: +$('dist').value };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, dist: +$('dist').value };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
@@ -306,14 +306,14 @@ const fx = (x, y, kind, dur = .6, size = 1, col) => U.fx.push({ x, y, kind, t: 0
 
 // ================================================================ damage / destruction
 function hitHero(d) {
-  if (U.over) return;
+  if (U.over || U.dying) return;
   if (H.docking) { hitStation(H.docking.s, d); return; }   // a docked ship is protected: the station's shields take the hit
   const s = H.shields;
   if (H.crippled > 0) H.hull -= d * 1.5;   // shields are offline while crippled: hits go straight to the hull, and hurt more
   else if (s >= d) H.shields -= d; else { H.hull -= d - s; H.shields = 0; }
   H.flash = .4; H.regenT = 3; U.shake = .25; sfx.hit();
   if (H.shields < 25 && s >= 25) say('WARNING: SHIELDS CRITICAL!', 'bad');
-  if (H.hull <= 0) endGame(false, 'YOUR SHIP HAS BEEN DESTROYED.');
+  if (H.hull <= 0) explodeHero('YOUR SHIP HAS BEEN DESTROYED.');
 }
 function damageAlien(a, d) {
   a.hp -= d; a.flash = .25;
@@ -342,9 +342,17 @@ function blastAt(q, x, y) {   // a mine explosion: destroys everything in the se
   for (const o of q.mines.slice()) if (cheb(o.x, o.y, x, y) <= 1) detonate(q, o);
 }
 function endGame(win, msg) {
-  if (U.over) return; U.over = true; engineOff(); (win ? sfx.win : sfx.lose)(); say(msg, win ? 'good' : 'bad');
+  if (U.over) return; U.over = true; U.dying = false; engineOff(); (win ? sfx.win : sfx.lose)(); say(msg, win ? 'good' : 'bad');
   const mins = Math.floor(U.t / 60), secs = Math.floor(U.t % 60);
   showOverlay(win ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED', `${msg}\n\nALIENS DESTROYED: ${U.kills}\nALIENS REMAINING: ${U.aliensLeft}\nMISSION TIME: ${mins}m ${secs}s`, 'PLAY AGAIN', () => { newGame(); });
+}
+// The ship's destruction: a short burst of explosions plays before the mission-failed screen appears.
+function explodeHero(msg) {
+  if (U.over || U.dying) return;
+  U.dying = true; H.moving = false; H.hull = 0; engineOff(); H.docking = null; H.jump = null; U.pending = null; U.jm = null;
+  U.shake = .8; sfx.big();
+  for (let i = 0; i < 9; i++) fx(H.x + (rnd() - .5) * 2.4, H.y + (rnd() - .5) * 2.4, 'big', .8 + rnd() * .5, .9 + rnd() * .7);
+  U.endT = 1.3; U.pendingEnd = [false, msg];
 }
 
 // ================================================================ hero commands
@@ -499,9 +507,14 @@ function checkSector() {
     H.torps = Math.min(10, H.torps + 4); H.mines = Math.min(6, H.mines + 3); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
     q.anom = null; sfx.supply(); say('SUPPLY DEPOT: TORPEDOES, MINES, ENERGY, HULL AND SHIELDS RESTORED!', 'good');
   }
-  else if (an.type === 'hole') { H.hull = 0; fx(H.x, H.y, 'big', 1, 1.4); endGame(false, 'YOUR SHIP WAS CRUSHED BY THE BLACK HOLE.'); }
+  else if (an.type === 'hole') explodeHero('YOUR SHIP WAS CRUSHED BY THE BLACK HOLE.');
   else if (an.type === 'derelict') { q.anom = null; salvage(q); }
 }
+// Object collisions (stars, planets, asteroids, stations, the nest) are unsurvivable at ion-drive speed: the ship is destroyed outright.
+// A collision with an alien ship instead does calculated impact damage - worse the more speed (sectors left to travel) was still carried,
+// plus a random jolt - and if the shields are already weak and there isn't enough reserve energy to hold them, the hull breach destroys the ship.
+const COLL_LABEL = { star: 'A STAR', planet: 'A PLANET', rock: 'AN ASTEROID', station: 'A SPACE STATION', nest: 'THE ALIEN NEST', alien: 'AN ALIEN SHIP' };
+function collisionDamage() { return 15 + H.remaining * 3 + ri(25); }
 function heroMoveStep() {
   const [dx, dy] = VEC[H.dir]; let nx = H.x + dx, ny = H.y + dy, nqx = H.qx, nqy = H.qy;
   if (nx < 0) { nx = SN - 1; nqx--; } else if (nx >= SN) { nx = 0; nqx++; }
@@ -509,10 +522,15 @@ function heroMoveStep() {
   if (nqx < 0 || nqy < 0 || nqx >= GN || nqy >= GN) return stopShip('EDGE OF THE GALAXY. ION DRIVE DISENGAGED.');
   const tq = Q(nqx, nqy), b = blockerAt(tq, nx, ny);
   if (b && b.t !== 'hero') {
-    if (b.t === 'star') { hitHero(10); stopShip('COLLISION WITH A STAR! DRIVE DISENGAGED.'); }
-    else if (b.t === 'planet' || b.t === 'rock' || b.t === 'station') stopShip(`${b.t === 'planet' ? 'PLANET' : b.t === 'rock' ? 'ASTEROID' : 'STATION'} IN THE WAY. DRIVE DISENGAGED.`);
-    else if (b.t === 'nest') { hitHero(10); damageNest(tq, 20); stopShip('COLLISION WITH THE ALIEN NEST!'); }
-    else { hitHero(10); damageAlien(b.o, 20); stopShip('COLLISION WITH AN ALIEN SHIP!'); }
+    if (b.t === 'nest') { damageNest(tq, 60); explodeHero('YOUR SHIP RAMMED THE ALIEN NEST AT FULL SPEED AND WAS DESTROYED.'); return; }
+    if (b.t === 'station') { hitStation(b.o, 60); explodeHero('YOUR SHIP RAMMED THE SPACE STATION AT FULL SPEED AND WAS DESTROYED.'); return; }
+    if (b.t === 'star' || b.t === 'planet' || b.t === 'rock') { explodeHero(`YOUR SHIP RAMMED ${COLL_LABEL[b.t]} AT FULL SPEED AND WAS DESTROYED.`); return; }
+    if (b.t === 'alien') {
+      damageAlien(b.o, 20);
+      if (H.shields < 20 && H.energy < 150) { explodeHero('THE IMPACT BREACHED YOUR HULL - SHIELDS TOO WEAK AND POWER TOO LOW TO HOLD.'); return; }
+      const dmg = collisionDamage(); hitHero(dmg);
+      if (!U.dying) stopShip(`COLLISION WITH AN ALIEN SHIP! IMPACT DAMAGE: ${dmg}.`);
+    }
     return;
   }
   if (nqx !== H.qx || nqy !== H.qy) changeQuadrant(nqx, nqy);
@@ -520,11 +538,38 @@ function heroMoveStep() {
   checkSector();
   if (H.remaining <= 0 && H.moving) { H.moving = false; engineOff(); say('DESTINATION REACHED.'); }
 }
+// Continuously scans up to 6 sectors ahead along the current heading so the computer can warn of an imminent collision before it happens.
+function scanCollisionAhead(dt) {
+  H.collision = null;
+  if (H.moving) {
+    const [dx, dy] = VEC[H.dir]; let qx = H.qx, qy = H.qy, x = H.x, y = H.y;
+    const look = Math.min(6, H.remaining);
+    for (let i = 1; i <= look; i++) {
+      x += dx; y += dy;
+      if (x < 0) { x = SN - 1; qx--; } else if (x >= SN) { x = 0; qx++; }
+      if (y < 0) { y = SN - 1; qy--; } else if (y >= SN) { y = 0; qy++; }
+      if (qx < 0 || qy < 0 || qx >= GN || qy >= GN) break;
+      const b = blockerAt(Q(qx, qy), x, y);
+      if (b && b.t !== 'hero') { H.collision = { t: b.t, d: i }; break; }
+    }
+  }
+  U.collWarnT = Math.max(0, (U.collWarnT || 0) - dt);
+  if (H.collision && U.collWarnT <= 0) {
+    say(`⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} DEAD AHEAD, ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} - BRACE OR CHANGE COURSE!`, 'bad');
+    sfx.alert(); U.collWarnT = Math.max(.6, H.collision.d * STEP * 1.3);
+  } else if (!H.collision) U.collWarnT = 0;
+}
+function advanceFx(dt) {
+  for (const b of U.beams) b.t += dt; U.beams = U.beams.filter(b => b.t < b.dur);
+  for (const f of U.fx) f.t += dt; U.fx = U.fx.filter(f => f.t < f.dur);
+}
 function update(dt) {
   if (!U || U.over) return;
   if (U.endT > 0) { U.endT -= dt; if (U.endT <= 0 && U.pendingEnd) endGame(...U.pendingEnd); }
   if (U.paused) return;
-  U.t += dt; U.grace = Math.max(0, U.grace - dt); U.shake = Math.max(0, U.shake - dt);
+  U.shake = Math.max(0, U.shake - dt);
+  if (U.dying) { advanceFx(dt); return; }   // the ship is exploding: let the burst play out, freeze everything else
+  U.t += dt; U.grace = Math.max(0, U.grace - dt);
   if (U.pending && (U.pending.t -= dt) <= 0) U.pending = null;
   const q = curQ(); scanAround();
   // energy / shields
@@ -532,7 +577,8 @@ function update(dt) {
   if (H.crippled > 0) { H.crippled -= dt; if (H.crippled <= 0) { H.crippled = 0; say('SYSTEMS BACK ONLINE.', 'good'); sfx.supply(); } }
   if (H.shields < 100 && H.regenT <= 0 && H.energy > 30 && !(H.crippled > 0)) { const r = 1.4 * Math.min(1, H.energy / 500) * dt; H.shields = Math.min(100, H.shields + r); H.energy -= r * 1.2; }
   // hero motion
-  if (H.moving) { H.stepT -= dt * tsAt(H.x, H.y); while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); } }
+  scanCollisionAhead(dt);
+  if (H.moving) { H.stepT -= dt * tsAt(H.x, H.y); while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); if (U.dying) return; } }
   if (H.jump && (H.jump.t -= dt) <= 0) finishJump();
   if (H.docking && !H.docking.done && (H.docking.t -= dt) <= 0) finishDock();
   if (U.sd) {
@@ -551,8 +597,8 @@ function update(dt) {
   if (U.disturbMsg) U.disturbMsg = Math.max(0, U.disturbMsg - dt);
   // projectiles
   for (const p of U.proj.slice()) updateProj(p, dt * tsAt(Math.round(p.x), Math.round(p.y)));
-  for (const b of U.beams) b.t += dt; U.beams = U.beams.filter(b => b.t < b.dur);
-  for (const f of U.fx) f.t += dt; U.fx = U.fx.filter(f => f.t < f.dur);
+  if (U.dying) return;   // heroMoveStep() or a projectile may have destroyed the ship this tick
+  advanceFx(dt);
 }
 // ---- anomaly behaviours ---------------------------------------------------
 function inNebula(q, x, y) { const an = q.anom; return !!an && an.type === 'nebula' && cheb(x, y, an.x, an.y) <= 4; }
@@ -772,11 +818,12 @@ function updateAlien(a, dt) {
 }
 function doSelfDestruct() {
   const q = curQ(); U.sd = null; sfx.big();
+  U.dying = true; H.moving = false; H.hull = 0; engineOff(); H.docking = null; H.jump = null; U.pending = null; U.jm = null; U.shake = .8;
   for (let i = 0; i < 8; i++) fx(H.x + (rnd() - .5) * 8, H.y + (rnd() - .5) * 8, 'big', 1.2, 2);
   for (const a of q.aliens.slice()) { q.aliens.splice(q.aliens.indexOf(a), 1); U.aliensLeft--; U.kills++; fx(a.x, a.y, 'big', 1.2, 1.5); }
-  q.mines = []; H.hull = 0;
+  q.mines = [];
   say('SELF-DESTRUCT COMPLETE. THE QUADRANT IS DESTROYED.', 'bad');
-  endGame(U.aliensLeft === 0, U.aliensLeft === 0 ? 'YOU GAVE YOUR SHIP TO DESTROY THE LAST ALIENS. THE GALAXY IS SAFE!' : `YOUR SHIP WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`);
+  U.endT = 1.3; U.pendingEnd = [U.aliensLeft === 0, U.aliensLeft === 0 ? 'YOU GAVE YOUR SHIP TO DESTROY THE LAST ALIENS. THE GALAXY IS SAFE!' : `YOUR SHIP WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`];
 }
 
 // ================================================================ drawing: sprites
@@ -933,7 +980,7 @@ function drawSR(t) {
     const T = ATYPES[a.type]; if (a.hp < T.hp) { c.fillStyle = '#300'; c.fillRect(cx(a.x) - 12, cx(a.y) - 20, 24, 3); c.fillStyle = '#ff5c5c'; c.fillRect(cx(a.x) - 12, cx(a.y) - 20, 24 * a.hp / T.hp, 3); }
     if (a.charge) { c.strokeStyle = 'rgba(255,80,80,.55)'; c.lineWidth = 1; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(cx(a.x), cx(a.y)); c.lineTo(cx(a.x) + a.charge.vx * SW, cx(a.y) + a.charge.vy * SW); c.stroke(); c.setLineDash([]); }
   }
-  if (!U.over || H.hull > 0) drawHero(c, cx(H.x), cx(H.y), Math.atan2(VEC[H.dir][1], VEC[H.dir][0]), H.flash > 0);
+  if (!U.dying && (!U.over || H.hull > 0)) drawHero(c, cx(H.x), cx(H.y), Math.atan2(VEC[H.dir][1], VEC[H.dir][0]), H.flash > 0);
   if (H.crippled > 0) { c.fillStyle = '#ffe14d'; for (let i = 0; i < 6; i++) c.fillRect(cx(H.x) + (rnd() - .5) * 40, cx(H.y) + (rnd() - .5) * 40, 2, 2); }
   if (H.docking) {
     const s = H.docking.s; c.strokeStyle = `rgba(51,255,102,${.5 + .4 * Math.sin(t * 12)})`; c.lineWidth = 3; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(cx(s.x), cx(s.y)); c.lineTo(cx(H.x), cx(H.y)); c.stroke(); c.setLineDash([]);
@@ -948,6 +995,12 @@ function drawSR(t) {
     c.globalAlpha = 1 - k; c.fillStyle = f.kind === 'jump' ? '#c08bff' : k < .3 ? '#fff' : '#ffb347'; if (f.kind !== 'spark') { c.beginPath(); c.arc(x, y, r * .5, 0, 6.3); c.fill(); }
     c.strokeStyle = f.kind === 'jump' ? '#e0c0ff' : '#ff6a3a'; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r, 0, 6.3); c.stroke(); c.globalAlpha = 1; }
   c.restore(); drawMini(t, cam);
+  if (H.collision) {
+    const label = COLL_LABEL[H.collision.t] || 'AN OBSTACLE', puls = .6 + .4 * Math.sin(t * 11);
+    c.fillStyle = `rgba(255,50,50,${.75 + .25 * puls})`; c.font = 'bold 13px "Courier New"'; c.textAlign = 'center';
+    c.fillText(`⚠ COLLISION ALARM: ${label} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD`, SW / 2, 50);
+    if (H.collision.d <= 3) { const a = (1 - H.collision.d / 3) * .3 * puls; c.strokeStyle = `rgba(255,40,40,${.2 + a})`; c.lineWidth = 14; c.strokeRect(7, 7, SW - 14, SW - 14); }
+  }
   if (H.crippled > 0) { c.fillStyle = '#ff4d5e'; c.font = 'bold 14px "Courier New"'; c.textAlign = 'center'; c.fillText('SYSTEMS CRIPPLED ' + H.crippled.toFixed(1) + 's', SW / 2, 50); }
   if (H.docking) { c.fillStyle = '#33ff66'; c.font = 'bold 14px "Courier New"'; c.textAlign = 'center'; c.fillText(H.docking.done ? 'DOCKED - WEAPONS OFFLINE - PRESS D TO UNDOCK' : 'DOCKING... ' + H.docking.t.toFixed(1) + 's', SW / 2, 26); }
   else { const ns = q.stations.find(s => cheb(s.x, s.y, H.x, H.y) <= 1); if (ns && !H.moving) { const atk = stationUnderAttack(q, ns); c.fillStyle = atk ? '#ff4d5e' : '#7fe8ff'; c.font = 'bold 12px "Courier New"'; c.textAlign = 'center'; c.fillText(atk ? 'STATION UNDER ATTACK - CANNOT DOCK' : 'STATION IN RANGE - PRESS D TO DOCK', SW / 2, 26); } }
@@ -1034,6 +1087,7 @@ function updateHUD() {
   else if (H.jump) p = 'HYPERDRIVE CHARGING...';
   else if (U.pending && U.pending.stage === 'dist') p = `MINE ${dirName(U.pending.dir)}: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY SECTORS IT TRAVELS BEFORE EXPLODING. 1 WILL BLAST YOU TOO!`;
   else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9)', move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
+  else if (H.collision) p = `⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD! CHANGE COURSE (NUMPAD) OR STOP (S).`;
   else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S STOPS.`;
   else p = 'READY. M = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   D = DOCK   H = HELP';
   $('prompt').textContent = p;
@@ -1052,6 +1106,7 @@ DIRECTIONS use the NUMPAD (or the top-row digits):
    1 SW   2 S   3 SE
 
 ION DRIVE  set distance with + / - (or the slider), press M, then a direction. Longer trips cost more energy. While moving, press a direction to change course, S to stop (unused energy refunded).
+COLLISIONS: the computer sounds a COLLISION ALARM when a star, planet, asteroid, station, the nest or an alien ship is ahead on your course - react by stopping or changing direction. Ram a star, planet, asteroid, station or the nest and your ship is destroyed outright. Ram an alien ship instead and you take impact damage (worse the more speed you still had left to travel, plus some randomness); if your shields are already weak and you don't have enough reserve energy to hold them, the hull breach destroys the ship. Your ship explodes when destroyed, by any cause.
 PHASER (P) + direction: fast, weaker. Max 3 beams at once.
 TORPEDO (T) + direction: slow, powerful. Limited supply, max 2 in flight.
 MINE (L) + direction + a number 1-9 (0 = 10): launches a mine that travels that many sectors. It explodes at the end of its run, or as soon as it hits a ship or any obstacle. The blast destroys everything in that sector and all 8 around it - alien ships, rocks and nests, and it damages space stations. A distance of 1 will blast you too! Max 2 mines in flight.
@@ -1060,7 +1115,7 @@ HYPERJUMP (J) + a number 1-9 (0 = 10): jumps that many sectors in a RANDOM direc
 SELF DESTRUCT (K): 5 second countdown, then everything in the quadrant is destroyed - including you. Press K again to cancel.
 SPACE pauses. Weapons work while moving.
 
-DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines. Stars and planets block movement and shots.
+DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines.
 SPACE STATIONS (1-4 in the galaxy, shown as a ring icon on the long range scanner): stop in a sector NEXT TO a station and press D. After 3 seconds your shields, hull, energy, torpedoes and mines are all restored to 100% and any crippling is repaired. A station then needs 45 seconds to restock. You STAY docked until you press D again or fly away, and your weapons are offline while docked.
  A docked ship is protected by the station's shields (400 - four times yours): every hit meant for you drains the station instead. Aliens attack stations too, especially one you are docked at. Stations fire back at aligned aliens, but only every few seconds. If the station's shields run out it is destroyed, and a docked ship goes with it - undock in time! Shields recover slowly when the station is not under fire. You cannot dock at a station that is under attack - destroy the attacking ships first. Stations block movement and shots.
 
