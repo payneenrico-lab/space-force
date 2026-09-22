@@ -28,8 +28,11 @@
   #stage { position: relative; max-width: min(480px, 90%); margin: 0 auto; }
   @media (min-width: 980px) { #stage { max-width: none; } }
   canvas { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #000; touch-action: manipulation; }
-  #sr { aspect-ratio: 1; } #lr { aspect-ratio: 1; max-width: min(300px, 88%); margin: 0 auto; }
-  @media (min-width: 980px) { #lr { max-width: 420px; } }
+  #sr { aspect-ratio: 1; } #lr { aspect-ratio: 1; border-radius: 6px 6px 0 0; border-bottom: none; }
+  #lrWrap { max-width: min(300px, 88%); margin: 0 auto; }
+  @media (min-width: 980px) { #lrWrap { max-width: 420px; } }
+  #lrSeam { height: 2px; background: #c7d0d8; }
+  #lrSweep { height: 10px; border-radius: 0 0 6px 6px; border-top: none; background: #03040a; }
   .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin-top: 8px; }
   .lbl { font-size: 10px; color: #6f8fb5; letter-spacing: 1px; }
   .bars { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
@@ -158,7 +161,11 @@
   </div>
   <div id="side">
     <div class="lbl" style="text-align:center;margin-bottom:2px">LONG RANGE SCANNER &mdash; ADJACENT QUADRANTS (DASHED BOX)</div>
-    <canvas id="lr" width="832" height="832"></canvas>
+    <div id="lrWrap">
+      <canvas id="lr" width="832" height="832"></canvas>
+      <div id="lrSeam"></div>
+      <canvas id="lrSweep" width="832" height="40"></canvas>
+    </div>
     <div id="log" class="box" style="margin-top:8px"></div>
   </div>
 </div>
@@ -168,6 +175,7 @@
 const GN = 8, SN = 32, VIEW = 16, CELL = 44, SW = VIEW * CELL, GC = 52, GW = GN * GC;
 const $ = id => document.getElementById(id);
 const sr = $('sr'), c = sr.getContext('2d'), lr = $('lr'), g = lr.getContext('2d');
+const lrSweep = $('lrSweep'), gs = lrSweep.getContext('2d');
 c.setTransform(2, 0, 0, 2, 0, 0); g.setTransform(2, 0, 0, 2, 0, 0);
 const rnd = Math.random, ri = n => rnd() * n | 0, cheb = (a, b, c2, d) => Math.max(Math.abs(a - c2), Math.abs(b - d));
 const VEC = { 7: [-1, -1], 8: [0, -1], 9: [1, -1], 4: [-1, 0], 6: [1, 0], 1: [-1, 1], 2: [0, 1], 3: [1, 1] };
@@ -1316,6 +1324,15 @@ function drawLR(t) {
   g.fillStyle = '#fff'; g.beginPath(); g.moveTo(hx + GC - 8, hy + 8); g.lineTo(hx + GC - 20, hy + 13); g.lineTo(hx + GC - 20, hy + 3); g.fill();
   g.lineWidth = 1;
 }
+function drawSweep(t) {
+  const w = lrSweep.width, h = lrSweep.height;
+  gs.fillStyle = '#03040a'; gs.fillRect(0, 0, w, h);
+  const period = 3, tt = (t % period) / period, p = tt < .5 ? tt * 2 : 2 - tt * 2, x = p * w;
+  const barW = w * .07, barH = h * .5;
+  const grad = gs.createLinearGradient(x - barW, 0, x + barW, 0);
+  grad.addColorStop(0, 'rgba(79,216,255,0)'); grad.addColorStop(.5, 'rgba(79,216,255,.85)'); grad.addColorStop(1, 'rgba(79,216,255,0)');
+  gs.fillStyle = grad; gs.fillRect(x - barW, h / 2 - barH / 2, barW * 2, barH);
+}
 
 // ================================================================ UI
 function updateHUD() {
@@ -1582,6 +1599,7 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min(.1, (now - last) / 1000); last = now;
   if (U) { update(dt); drawSR(now / 1000); drawLR(now / 1000); updateHUD(); }
+  drawSweep(now / 1000);
   if (guideOpen) for (const g of GUIDE) paintGuideCard(guideCtx[g.id], g.id, now / 1000);
   requestAnimationFrame(loop);
 }
