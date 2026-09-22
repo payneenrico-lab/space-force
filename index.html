@@ -48,6 +48,8 @@
   button:hover:not(:disabled) { background: #1a4680; } button:disabled { opacity: .35; }
   button small { display: block; font-weight: normal; font-size: 9px; opacity: .7; }
   button.wp { border-color: #ff9a4d; background: #4a2410; } button.go { border-color: var(--green); background: #0f4a2a; color: var(--green); } button.dg { border-color: var(--red); background: #4a1420; color: #ffb3bb; }
+  button.lk { border-color: #4a4f66; background: #0d1122; color: #5a6280; } button.lk.unlocked.wp { border-color: #c08bff; background: #2a1650; color: #e0c8ff; }
+  button.lk.unlocked.dg { border-color: #ffe14d; background: #4a3a0a; color: #ffe9a0; } button.lk small { color: inherit; opacity: .85; }
   #jnums { display: none; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 8px; } #jnums button { padding: 10px 0; border-color: #c08bff; background: #2a1650; }
   #ctl { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin-top: 8px; }
   #compass { display: grid; grid-template-columns: repeat(3, 46px); gap: 4px; }
@@ -77,10 +79,12 @@
     </div>
     <div id="jnums"><button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button><button data-n="4">4</button><button data-n="5">5</button><button data-n="6">6</button><button data-n="7">7</button><button data-n="8">8</button><button data-n="9">9</button><button data-n="10">10</button></div>
     <div id="cmds">
-      <button id="cMove" class="go">ION DRIVE<small>M</small></button>
+      <button id="cMove" class="go">ION DRIVE<small>I</small></button>
       <button id="cPhaser" class="wp">PHASER<small>P</small></button>
       <button id="cTorp" class="wp">TORPEDO<small>T</small></button>
       <button id="cMine" class="wp">LAUNCH MINE<small>L</small></button>
+      <button id="cDisr" class="wp lk">DISRUPTOR<small>X</small></button>
+      <button id="cNova" class="dg lk">NOVA TORPEDO<small>V</small></button>
       <button id="cJump">HYPERJUMP<small>J</small></button>
       <button id="cSD" class="dg">SELF DESTRUCT<small>K</small></button>
       <button id="cDock" class="go">DOCK<small>D</small></button>
@@ -104,9 +108,11 @@
         <div id="bH"><span class="lbl">HULL <b id="tH"></b></span><div class="bar"><i></i></div></div>
         <div id="bE"><span class="lbl">ENERGY <b id="tE"></b></span><div class="bar"><i></i></div></div>
       </div>
-      <div class="stats">
+      <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+        <div><b id="sLvl">1</b><span class="lbl">LEVEL</span></div>
         <div><b id="sTorp">10</b><span class="lbl">TORPEDOES</span></div>
         <div><b id="sMine">6</b><span class="lbl">MINES</span></div>
+        <div><b id="sNova">0</b><span class="lbl">NOVAS</span></div>
         <div><b id="sAl">0</b><span class="lbl">ALIENS LEFT</span></div>
         <div><b id="sPos">-</b><span class="lbl">Q / SECTOR</span></div>
       </div>
@@ -192,6 +198,10 @@ const sfx = {
   beep(f = 900) { tone({ f0: f, f1: f, dur: .09, vol: .22 }); },
   click()   { tone({ f0: 900, f1: 700, dur: .04, vol: .1 }); },
   win()     { arp([392, 523, 659, 784, 659, 784, 1047, 1319], .13, 'square', .2, .2); },
+  levelUp() { arp([523, 659, 523, 784, 1047], .1, 'triangle', .28, .16); },
+  disr()    { tone({ type: 'sawtooth', f0: 300, f1: 260, dur: .3, vol: .16 }); tone({ type: 'square', f0: 2200, f1: 900, dur: .28, vol: .12 }); },
+  novaFire(){ noise({ dur: .6, vol: .3, f0: 300, f1: 4000, type: 'bandpass' }); tone({ type: 'sine', f0: 150, f1: 900, dur: .5, vol: .2 }); },
+  novaHit() { noise({ dur: 1.6, vol: .9, f0: 6000, f1: 50 }); tone({ type: 'sawtooth', f0: 100, f1: 15, dur: 1.5, vol: .4 }); tone({ type: 'square', f0: 900, f1: 60, dur: 1.2, vol: .2 }); },
   lose()    { arp([392, 349, 311, 262, 220, 165], .3, 'triangle', .35, .4); },
 };
 function engineOn() {
@@ -218,9 +228,9 @@ function newAlien(type, q, pos) {
   q.aliens.push(a);
 }
 function newGame() {
-  U = { Q: [], t: 0, nextId: 1, kills: 0, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
+  U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, dist: +$('dist').value };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
@@ -324,7 +334,28 @@ function killAlien(a) {
   q.aliens.splice(i, 1); U.aliensLeft--; U.kills++;
   fx(a.x, a.y, 'boom', .8, 1.2); sfx.boom();
   say(`${ATYPES[a.type].name} DESTROYED. ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} REMAIN.`, 'good');
+  checkLevelUp();
   if (U.aliensLeft === 0 && !U.over) { U.endT = 1.6; U.pendingEnd = [true, 'ALL ALIEN SHIPS HAVE BEEN DESTROYED. THE GALAXY IS SAFE!']; }
+}
+// Weapon upgrades unlock as the commander's kill count rises. Each entry is the number of kills needed to REACH that level.
+const LEVELS = [
+  { n: 1, kills: 0 },
+  { n: 2, kills: 4 },
+  { n: 3, kills: 8, unlock: 'disr', name: 'DISRUPTOR', desc: 'a piercing beam that tears through every ship in its path' },
+  { n: 4, kills: 14 },
+  { n: 5, kills: 20 },
+  { n: 6, kills: 28, unlock: 'nova', name: 'NOVA TORPEDO', desc: 'a warhead that annihilates everything for sectors around' },
+];
+function checkLevelUp() {
+  let lvl = LEVELS[0];
+  for (const l of LEVELS) if (U.kills >= l.kills) lvl = l;
+  if (lvl.n === U.level) return;
+  U.level = lvl.n; sfx.levelUp(); say(`COMMENDATION: PROMOTED TO LEVEL ${lvl.n}.`, 'good');
+  if (lvl.unlock) {
+    H[lvl.unlock + 'Unlocked'] = true;
+    if (lvl.unlock === 'nova') H.novas = Math.min(2, H.novas + 2); else H.energy = Math.min(MAXE, H.energy + 300);
+    say(`NEW WEAPON UNLOCKED: ${lvl.name} - ${lvl.desc}.`, 'good');
+  }
 }
 function detonate(q, m) {   // a mine that was sitting in space (alien mines, minefields) goes off
   const i = q.mines.indexOf(m); if (i < 0) return; q.mines.splice(i, 1);
@@ -367,9 +398,11 @@ function cmd(name) {
   if (name === 'stop') return stopShip('ION DRIVE DISENGAGED.');
   if (name === 'sd') return selfDestruct();
   if (name === 'dock') return dock();
-  if (H.docking && ['phaser', 'torp', 'mine'].includes(name)) return say('WEAPONS OFFLINE WHILE DOCKED - PRESS D TO UNDOCK.', 'warn');
+  if (name === 'disr' && !H.disrUnlocked) return say('DISRUPTOR NOT YET UNLOCKED.', 'warn');
+  if (name === 'nova' && !H.novaUnlocked) return say('NOVA TORPEDO NOT YET UNLOCKED.', 'warn');
+  if (H.docking && ['phaser', 'torp', 'mine', 'disr', 'nova'].includes(name)) return say('WEAPONS OFFLINE WHILE DOCKED - PRESS D TO UNDOCK.', 'warn');
   if (H.docking && ['move', 'jump'].includes(name)) undock();
-  if (H.crippled > 0 && ['move', 'phaser', 'torp', 'mine', 'jump'].includes(name)) return say('SYSTEMS OFFLINE - THE SHIP IS CRIPPLED!', 'bad');
+  if (H.crippled > 0 && ['move', 'phaser', 'torp', 'mine', 'jump', 'disr', 'nova'].includes(name)) return say('SYSTEMS OFFLINE - THE SHIP IS CRIPPLED!', 'bad');
   if (name === 'jump') { if (U.jm) { U.jm = null; return; } enterJump(); return; }
   U.jm = null;
   if (H.jump) { say('HYPERDRIVE SPOOLING - CONTROLS LOCKED.', 'warn'); return; }
@@ -383,11 +416,12 @@ function heroDir(d) {
   if (p && p.stage === 'dist') return;   // waiting for a distance number, not a direction
   if (p) {
     U.pending = null;
-    if (p.cmd === 'phaser') firePhaser(d); else if (p.cmd === 'torp') fireTorp(d); else if (p.cmd === 'mine') askMineDistance(d); else if (p.cmd === 'move') engage(d);
+    if (p.cmd === 'phaser') firePhaser(d); else if (p.cmd === 'torp') fireTorp(d); else if (p.cmd === 'mine') askMineDistance(d);
+    else if (p.cmd === 'disr') fireDisruptor(d); else if (p.cmd === 'nova') fireNova(d); else if (p.cmd === 'move') engage(d);
     return;
   }
   if (H.moving) { H.dir = d; say(`COURSE CHANGED (${dirName(d)}).`); sfx.click(); }
-  else say('SELECT A COMMAND FIRST: M (MOVE), P (PHASER), T (TORPEDO), L (MINE).', 'warn');
+  else say('SELECT A COMMAND FIRST: I (ION DRIVE), P (PHASER), T (TORPEDO), L (MINE).', 'warn');
 }
 const dirName = d => ({ 7: 'NW', 8: 'N', 9: 'NE', 4: 'W', 6: 'E', 1: 'SW', 2: 'S', 3: 'SE' })[d];
 function engage(d) {
@@ -416,10 +450,41 @@ function firePhaser(d) {
   }
 }
 function fireTorp(d) {
-  if (U.proj.filter(p => p.owner === 'hero').length >= 2) return say('TORPEDO TUBES RELOADING (MAX 2 IN FLIGHT).', 'warn');
+  if (U.proj.filter(p => p.owner === 'hero' && !p.mine && !p.nova).length >= 2) return say('TORPEDO TUBES RELOADING (MAX 2 IN FLIGHT).', 'warn');
   if (H.torps <= 0) return say('NO TORPEDOES REMAIN.', 'bad');
   H.torps--; const [vx, vy] = VEC[d];
   U.proj.push({ owner: 'hero', x: H.x, y: H.y, vx, vy, sp: 9, dmg: 80, cx: H.x, cy: H.y, life: 3 }); sfx.torp();
+}
+// DISRUPTOR (unlocked at level 3): a piercing beam that punches through every ship on its line, not just the first one hit.
+function fireDisruptor(d) {
+  if (!H.disrUnlocked) return say('DISRUPTOR NOT YET UNLOCKED.', 'warn');
+  if (U.beams.filter(b => b.owner === 'hero' && b.disr).length >= 2) return say('DISRUPTOR CAPACITORS RECHARGING (MAX 2 BEAMS).', 'warn');
+  if (!energyUse(28)) return;
+  const q = curQ(), [vx, vy] = VEC[d]; let x = H.x, y = H.y, hits = 0;
+  for (let i = 1; i <= 14; i++) {
+    x += vx; y += vy;
+    if (x < 0 || y < 0 || x >= SN || y >= SN) { x -= vx; y -= vy; break; }
+    if (q.anom && q.anom.type === 'radiat' && q.anom.x === x && q.anom.y === y) { fx(x, y, 'boom', .4, .8); sfx.boom(); break; }   // clouds absorb it
+    const b = blockerAt(q, x, y);
+    if (!b || b.t === 'hero') continue;
+    if (b.t === 'alien') { damageAlien(b.o, 35); hits++; continue; }   // pierces through and keeps going
+    if (b.t === 'mine') { detonate(q, b.o); break; }
+    if (b.t === 'nest') { damageNest(q, 35); break; }
+    break;   // star / planet / rock / station: solid, stops the beam
+  }
+  U.beams.push({ x1: H.x, y1: H.y, x2: x, y2: y, t: 0, dur: .4, owner: 'hero', disr: true }); sfx.disr();
+  if (!hits) say('DISRUPTOR BEAM FIRED - NO TARGETS HIT.', 'warn');
+}
+// NOVA TORPEDO (unlocked at level 6): the most lethal weapon in the ship's arsenal. On impact with anything it detonates in a huge
+// blast that annihilates every ship for 2 sectors around, at the cost of a very small, non-replenishing supply.
+function fireNova(d) {
+  if (!H.novaUnlocked) return say('NOVA TORPEDO NOT YET UNLOCKED.', 'warn');
+  if (H.novas <= 0) return say('NO NOVA TORPEDOES REMAIN.', 'bad');
+  if (U.proj.filter(p => p.nova).length >= 1) return say('NOVA LAUNCHER RECHARGING (MAX 1 IN FLIGHT).', 'warn');
+  if (!energyUse(60)) return;
+  H.novas--; const [vx, vy] = VEC[d];
+  U.proj.push({ owner: 'hero', nova: true, x: H.x, y: H.y, vx, vy, sp: 7, dmg: 0, cx: H.x, cy: H.y, life: 5 });
+  sfx.novaFire(); say(`NOVA TORPEDO LAUNCHED ${dirName(d)}! ${H.novas} REMAINING.`, 'warn');
 }
 // Mines are launched: L, a direction, then a number 1-9 (0 = 10) for how many sectors the mine travels. It explodes at the end of its
 // run, or the moment it hits a ship or any obstacle. The blast destroys everything in the sector and the 8 around it.
@@ -715,8 +780,19 @@ function radBlast(q, x, y) {   // a torpedo detonated by a radiation cloud: hurt
   for (const a of q.aliens.slice()) if (cheb(a.x, a.y, x, y) <= 1) damageAlien(a, 40);
   if (cheb(H.x, H.y, x, y) <= 1) { say('CAUGHT IN A TORPEDO BLAST!', 'bad'); hitHero(25); }
 }
+function novaBlast(q, x, y) {   // the nova torpedo: a much bigger, far deadlier version of a mine blast - annihilates ships outright
+  fx(x, y, 'big', 1.4, 2.6); sfx.novaHit(); U.shake = 1;
+  for (const a of q.aliens.slice()) if (cheb(a.x, a.y, x, y) <= 2) killAlien(a);
+  for (const s of q.stations.slice()) if (cheb(s.x, s.y, x, y) <= 2) hitStation(s, 300);
+  if (q.anom) {
+    if (q.anom.rocks) for (const rk of q.anom.rocks.slice()) if (cheb(rk.x, rk.y, x, y) <= 2) destroyRock(q, rk);
+    if (q.anom.type === 'nest' && cheb(q.anom.x, q.anom.y, x, y) <= 2) damageNest(q, 260);
+  }
+  if (q === curQ() && cheb(H.x, H.y, x, y) <= 2) { say('CAUGHT IN YOUR OWN NOVA BLAST!', 'bad'); hitHero(180); }
+  for (const o of q.mines.slice()) if (cheb(o.x, o.y, x, y) <= 2) detonate(q, o);
+}
 function updateProj(p, dt) {
-  const q = curQ(); p.life -= dt; if (p.life <= 0) { U.proj.splice(U.proj.indexOf(p), 1); if (p.mine) blastAt(q, Math.max(0, Math.min(SN - 1, Math.round(p.x))), Math.max(0, Math.min(SN - 1, Math.round(p.y)))); return; }
+  const q = curQ(); p.life -= dt; if (p.life <= 0) { U.proj.splice(U.proj.indexOf(p), 1); const ex = Math.max(0, Math.min(SN - 1, Math.round(p.x))), ey = Math.max(0, Math.min(SN - 1, Math.round(p.y))); if (p.mine) blastAt(q, ex, ey); else if (p.nova) novaBlast(q, ex, ey); return; }
   p.x += p.vx * p.sp * dt; p.y += p.vy * p.sp * dt;
   const rm = () => { const i = U.proj.indexOf(p); if (i >= 0) U.proj.splice(i, 1); };
   const hole = q.anom && q.anom.type === 'hole' ? q.anom : null;   // black hole: bends torpedoes toward it and swallows them
@@ -728,17 +804,21 @@ function updateProj(p, dt) {
   const cx = Math.round(p.x), cy = Math.round(p.y);
   if (cx === p.cx && cy === p.cy) return; p.cx = cx; p.cy = cy;
   if (p.mine) p.left--;
-  if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) { rm(); if (p.mine) blastAt(q, Math.max(0, Math.min(SN - 1, cx)), Math.max(0, Math.min(SN - 1, cy))); return; }
+  if (cx < 0 || cy < 0 || cx >= SN || cy >= SN) { rm(); const ex = Math.max(0, Math.min(SN - 1, cx)), ey = Math.max(0, Math.min(SN - 1, cy)); if (p.mine) blastAt(q, ex, ey); else if (p.nova) novaBlast(q, ex, ey); return; }
   const m = q.mines.find(m => m.x === cx && m.y === cy); if (m) { rm(); return detonate(q, m); }
   const an = q.anom;   // radiation cloud: the torpedo either explodes or is deflected in a random direction
   if (an && an.type === 'radiat' && an.x === cx && an.y === cy) {
     const roll = rnd();
-    if (roll < 1 / 3) { rm(); if (p.mine) blastAt(q, cx, cy); else radBlast(q, cx, cy); return; }
+    if (roll < 1 / 3) { rm(); if (p.mine) blastAt(q, cx, cy); else if (p.nova) novaBlast(q, cx, cy); else radBlast(q, cx, cy); return; }
     if (roll < 2 / 3) { const d = randDir(); p.vx = VEC[d][0]; p.vy = VEC[d][1]; p.x = cx; p.y = cy; p.deflected = true; fx(cx, cy, 'spark', .4, .8); sfx.ping(); return; }
     // otherwise: no effect, the torpedo flies straight on
   }
   if (p.mine) {   // a launched mine explodes on hitting any ship or obstacle, or when it reaches the end of its run
     if (blockerAt(q, cx, cy) || p.left <= 0) { rm(); blastAt(q, cx, cy); }
+    return;
+  }
+  if (p.nova) {   // the nova torpedo detonates in a massive blast on hitting anything at all
+    if (blockerAt(q, cx, cy)) { rm(); novaBlast(q, cx, cy); }
     return;
   }
   const b = blockerAt(q, cx, cy); if (!b) return;
@@ -962,7 +1042,7 @@ function drawSR(t) {
     const [mx, my] = VEC[U.pending.dir]; c.strokeStyle = 'rgba(255,154,77,.4)'; c.setLineDash([4, 5]); c.lineWidth = 1; c.beginPath(); c.moveTo(cx(H.x), cx(H.y)); c.lineTo(cx(H.x + mx * 10), cx(H.y + my * 10)); c.stroke(); c.setLineDash([]);
     c.fillStyle = '#ffd08a'; c.font = 'bold 11px "Courier New"'; c.textAlign = 'center'; for (let i = 1; i <= 10; i++) c.fillText(i % 10, cx(H.x + mx * i), cx(H.y + my * i) + 4);
   }
-  const armed = U.pending && !U.pending.stage && ['phaser', 'torp', 'mine', 'move'].includes(U.pending.cmd);
+  const armed = U.pending && !U.pending.stage && ['phaser', 'torp', 'mine', 'disr', 'nova', 'move'].includes(U.pending.cmd);
   if (armed) { c.strokeStyle = U.pending.cmd === 'move' ? 'rgba(51,255,102,.35)' : 'rgba(255,154,77,.35)'; c.setLineDash([4, 5]); c.lineWidth = 1;
     for (const d in VEC) { const [vx, vy] = VEC[d]; c.beginPath(); c.moveTo(cx(H.x), cx(H.y)); c.lineTo(cx(H.x) + vx * SW, cx(H.y) + vy * SW); c.stroke();
       const lx = cx(H.x) + vx * 32, ly = cx(H.y) + vy * 32; c.setLineDash([]); c.fillStyle = 'rgba(255,255,255,.75)'; c.font = 'bold 11px "Courier New"'; c.textAlign = 'center'; c.fillText(d, lx, ly + 4); c.setLineDash([4, 5]); } c.setLineDash([]); }
@@ -987,10 +1067,16 @@ function drawSR(t) {
     c.beginPath(); c.arc(cx(H.x), cx(H.y), 24, 0, 6.3); c.stroke();
   }
   if (H.jump) { c.strokeStyle = `rgba(200,150,255,${.4 + .4 * Math.sin(t * 20)})`; c.lineWidth = 2; c.beginPath(); c.arc(cx(H.x), cx(H.y), 22 + (2 - H.jump.t) * 6, 0, 6.3); c.stroke(); }
-  for (const b of U.beams) { const k = b.t / b.dur, col = b.owner === 'hero' ? '79,216,255' : b.owner === 'station' ? '51,255,102' : '255,90,90'; c.strokeStyle = `rgba(${col},${1 - k})`; c.lineWidth = 3 - k * 2; c.shadowColor = `rgb(${col})`; c.shadowBlur = 10;
+  for (const b of U.beams) { const k = b.t / b.dur, col = b.disr ? '192,139,255' : b.owner === 'hero' ? '79,216,255' : b.owner === 'station' ? '51,255,102' : '255,90,90'; c.strokeStyle = `rgba(${col},${1 - k})`; c.lineWidth = (b.disr ? 5 : 3) - k * 2; c.shadowColor = `rgb(${col})`; c.shadowBlur = b.disr ? 16 : 10;
     c.beginPath(); c.moveTo(cx(b.x1), cx(b.y1)); c.lineTo(cx(b.x2), cx(b.y2)); c.stroke(); c.shadowBlur = 0; }
-  for (const p of U.proj) { if (p.mine) { drawMine(c, { owner: p.owner, arm: 0 }, cx(p.x), cx(p.y), t); continue; } const col = p.owner === 'hero' ? '#7fe8ff' : '#ff8a5c'; c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 12; c.beginPath(); c.arc(cx(p.x), cx(p.y), 4, 0, 6.3); c.fill(); c.shadowBlur = 0;
-    c.strokeStyle = col; c.globalAlpha = .4; c.lineWidth = 2; c.beginPath(); c.moveTo(cx(p.x), cx(p.y)); c.lineTo(cx(p.x - p.vx * .6), cx(p.y - p.vy * .6)); c.stroke(); c.globalAlpha = 1; }
+  for (const p of U.proj) {
+    if (p.mine) { drawMine(c, { owner: p.owner, arm: 0 }, cx(p.x), cx(p.y), t); continue; }
+    if (p.nova) { const px = cx(p.x), py = cx(p.y), pulse = 1 + Math.sin(t * 20) * .25; c.fillStyle = '#ffe14d'; c.shadowColor = '#ff8a3d'; c.shadowBlur = 22; c.beginPath(); c.arc(px, py, 7 * pulse, 0, 6.3); c.fill();
+      c.strokeStyle = '#ff8a3d'; c.lineWidth = 2; c.beginPath(); c.arc(px, py, 11 * pulse, 0, 6.3); c.stroke(); c.shadowBlur = 0;
+      c.strokeStyle = 'rgba(255,225,77,.5)'; c.lineWidth = 3; c.beginPath(); c.moveTo(px, py); c.lineTo(cx(p.x - p.vx * 1.1), cx(p.y - p.vy * 1.1)); c.stroke(); continue; }
+    const col = p.owner === 'hero' ? '#7fe8ff' : '#ff8a5c'; c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 12; c.beginPath(); c.arc(cx(p.x), cx(p.y), 4, 0, 6.3); c.fill(); c.shadowBlur = 0;
+    c.strokeStyle = col; c.globalAlpha = .4; c.lineWidth = 2; c.beginPath(); c.moveTo(cx(p.x), cx(p.y)); c.lineTo(cx(p.x - p.vx * .6), cx(p.y - p.vy * .6)); c.stroke(); c.globalAlpha = 1;
+  }
   for (const f of U.fx) { const k = f.t / f.dur, x = cx(f.x), y = cx(f.y), r = (f.kind === 'big' ? 20 + k * 80 : f.kind === 'jump' ? 10 + k * 50 : 6 + k * 26) * f.size;
     c.globalAlpha = 1 - k; c.fillStyle = f.kind === 'jump' ? '#c08bff' : k < .3 ? '#fff' : '#ffb347'; if (f.kind !== 'spark') { c.beginPath(); c.arc(x, y, r * .5, 0, 6.3); c.fill(); }
     c.strokeStyle = f.kind === 'jump' ? '#e0c0ff' : '#ff6a3a'; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r, 0, 6.3); c.stroke(); c.globalAlpha = 1; }
@@ -1079,6 +1165,9 @@ function updateHUD() {
   $('bH').firstElementChild.nextElementSibling.firstChild.style.width = Math.max(0, H.hull) + '%'; $('tH').textContent = Math.max(0, Math.round(H.hull)) + '%';
   $('bE').firstElementChild.nextElementSibling.firstChild.style.width = H.energy / MAXE * 100 + '%'; $('tE').textContent = Math.round(H.energy);
   $('sTorp').textContent = H.torps; $('sMine').textContent = H.mines; $('sAl').textContent = U.aliensLeft; $('sPos').textContent = `${H.qx + 1},${H.qy + 1} / ${H.x + 1},${H.y + 1}`;
+  $('sLvl').textContent = U.level; $('sNova').textContent = H.novas;
+  $('cDisr').classList.toggle('unlocked', H.disrUnlocked); $('cDisr').lastElementChild.textContent = H.disrUnlocked ? 'X' : `LV.${LEVELS.find(l => l.unlock === 'disr').n}`;
+  $('cNova').classList.toggle('unlocked', H.novaUnlocked); $('cNova').lastElementChild.textContent = H.novaUnlocked ? 'V' : `LV.${LEVELS.find(l => l.unlock === 'nova').n}`;
   let p = '';
   if (U.sd) p = `SELF-DESTRUCT IN ${Math.ceil(U.sd.t)}... PRESS K AGAIN TO CANCEL.`;
   else if (H.docking) p = (H.docking.done ? 'DOCKED' : `DOCKING (${H.docking.t.toFixed(1)}s)`) + ` - STATION SHIELDS ${Math.max(0, Math.round(H.docking.s.shield))}/${STATION_SHIELD}. WEAPONS OFFLINE. PRESS D TO UNDOCK.`;
@@ -1086,10 +1175,10 @@ function updateHUD() {
   else if (U.jm) p = 'HYPERJUMP: PRESS A NUMBER 1-9 (0 = 10) FOR THE NUMBER OF SECTORS. DIRECTION IS RANDOM - YOU MAY LAND IN ANOTHER QUADRANT. ESC CANCELS.';
   else if (H.jump) p = 'HYPERDRIVE CHARGING...';
   else if (U.pending && U.pending.stage === 'dist') p = `MINE ${dirName(U.pending.dir)}: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY SECTORS IT TRAVELS BEFORE EXPLODING. 1 WILL BLAST YOU TOO!`;
-  else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9)', move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
+  else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9)', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.collision) p = `⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD! CHANGE COURSE (NUMPAD) OR STOP (S).`;
   else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S STOPS.`;
-  else p = 'READY. M = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   D = DOCK   H = HELP';
+  else p = 'READY. I = ION DRIVE   P = PHASER   T = TORPEDO   L = MINE   J = HYPERJUMP   D = DOCK   H = HELP';
   $('prompt').textContent = p;
   $('distv').textContent = H.dist; $('distc').textContent = 'ENERGY COST ' + driveCost(H.dist);
   $('jnums').style.display = (U.jm || (U.pending && U.pending.stage === 'dist')) ? 'grid' : 'none';
@@ -1105,10 +1194,13 @@ DIRECTIONS use the NUMPAD (or the top-row digits):
    4 W          6 E
    1 SW   2 S   3 SE
 
-ION DRIVE  set distance with + / - (or the slider), press M, then a direction. Longer trips cost more energy. While moving, press a direction to change course, S to stop (unused energy refunded).
+ION DRIVE  set distance with + / - (or the slider), press I, then a direction. Longer trips cost more energy. While moving, press a direction to change course, S to stop (unused energy refunded).
 COLLISIONS: the computer sounds a COLLISION ALARM when a star, planet, asteroid, station, the nest or an alien ship is ahead on your course - react by stopping or changing direction. Ram a star, planet, asteroid, station or the nest and your ship is destroyed outright. Ram an alien ship instead and you take impact damage (worse the more speed you still had left to travel, plus some randomness); if your shields are already weak and you don't have enough reserve energy to hold them, the hull breach destroys the ship. Your ship explodes when destroyed, by any cause.
 PHASER (P) + direction: fast, weaker. Max 3 beams at once.
 TORPEDO (T) + direction: slow, powerful. Limited supply, max 2 in flight.
+PROMOTION: destroying aliens earns commendations. Reach LEVEL 3 to unlock the DISRUPTOR, and LEVEL 6 to unlock the NOVA TORPEDO.
+DISRUPTOR (X) + direction - unlocked at level 3: a piercing beam that punches through EVERY ship on its line, not just the first. Stronger than the phaser. Max 2 beams, more energy per shot.
+NOVA TORPEDO (V) + direction - unlocked at level 6: the most lethal weapon aboard. Detonates on hitting anything, annihilating every ship for 2 sectors around outright. Only 2 are carried and they cannot be restocked, so use them wisely.
 MINE (L) + direction + a number 1-9 (0 = 10): launches a mine that travels that many sectors. It explodes at the end of its run, or as soon as it hits a ship or any obstacle. The blast destroys everything in that sector and all 8 around it - alien ships, rocks and nests, and it damages space stations. A distance of 1 will blast you too! Max 2 mines in flight.
 Alien minelayers still drop static mines that sit in space until something touches them (or a beam or torpedo hits them).
 HYPERJUMP (J) + a number 1-9 (0 = 10): jumps that many sectors in a RANDOM direction after a 2 second spool-up. You may end up in another quadrant. Costs more energy the further you jump.
@@ -1147,7 +1239,8 @@ addEventListener('keydown', e => {
   }
   if (dd) { e.preventDefault(); heroDir(dd); return; }
   switch (k) {
-    case 'KeyM': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyL': cmd('mine'); break;
+    case 'KeyI': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyL': cmd('mine'); break;
+    case 'KeyX': cmd('disr'); break; case 'KeyV': cmd('nova'); break;
     case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
     case 'KeyD': cmd('dock'); break;
     case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break; case 'KeyS': cmd('stop'); break; case 'KeyH': cmd('help'); break;
@@ -1160,7 +1253,7 @@ function setDist(v) { H.dist = Math.max(1, Math.min(40, v)); $('dist').value = H
 $('dist').oninput = e => { H.dist = +e.target.value; };
 for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () => { initAudio(); heroDir(+b.dataset.d); };
 $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
-for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
+for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
 $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
 for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); };
 lr.addEventListener('pointerdown', e => {
