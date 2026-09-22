@@ -71,6 +71,19 @@
   .gcard b { font-size: 10px; letter-spacing: .4px; }
   .gcard .tag { font-size: 8px; padding: 1px 5px; border-radius: 8px; align-self: flex-start; letter-spacing: .4px; }
   .gcard p { margin: 0; font-size: 9.5px; line-height: 1.35; color: #9fb3d6; }
+  #contactsOverlay { position: absolute; inset: 0; display: none; background: rgba(2,4,12,.96); border-radius: 6px; padding: 12px; overflow-y: auto; }
+  #contactsOverlay .ghead { position: sticky; top: -12px; margin: -12px -12px 10px; padding: 10px 12px; background: rgba(2,4,12,.98); border-bottom: 1px solid var(--line);
+                             display: flex; justify-content: space-between; align-items: center; z-index: 1; }
+  #contactsOverlay h2 { margin: 0; letter-spacing: 2px; color: var(--cyan); font-size: 14px; }
+  #contactsOverlay .clbl { margin: 0 0 12px; font-size: 10.5px; color: #6f8fb5; line-height: 1.4; }
+  .csec { margin-bottom: 14px; } .csec h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: 1.5px; color: var(--amber); border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+  .crows { display: flex; flex-direction: column; gap: 4px; }
+  .crow { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; font-size: 11px; }
+  .crow.dim { opacity: .55; } .crow .cq { font-weight: bold; color: var(--cyan); min-width: 44px; }
+  .crow .clive { margin-left: auto; font-size: 8px; letter-spacing: .5px; padding: 1px 6px; border-radius: 8px; }
+  .crow .clive.live { color: var(--green); border: 1px solid var(--green); }
+  .crow .clive.stale { color: #6f8fb5; border: 1px solid #3a4a6a; }
+  .cnone { font-size: 11px; color: #6f8fb5; padding: 4px 2px; }
   #overlay pre { margin: 0 0 10px; white-space: pre-wrap; font: 12px/1.4 "Courier New", monospace; color: var(--green); text-align: left; }
   #overlay button { padding: 12px 22px; }
 </style>
@@ -107,6 +120,7 @@
       <button id="cGuide">FIELD GUIDE<small>G</small></button>
       <button id="cPause">PAUSE<small>SPACE</small></button>
       <button id="cHelp">HELP<small>H</small></button>
+      <button id="cContacts">CONTACTS<small>C</small></button>
     </div>
   </div>
   <div id="mainCol">
@@ -116,6 +130,13 @@
       <div id="guideOverlay">
         <div class="ghead"><h2>ANOMALY FIELD GUIDE</h2><button id="gClose" class="gclose go">CLOSE</button></div>
         <div id="ggrid"></div>
+      </div>
+      <div id="contactsOverlay">
+        <div class="ghead"><h2>SECTOR CONTACTS</h2><button id="ctClose" class="gclose go">CLOSE</button></div>
+        <p class="clbl">Everything the long range scanner has logged across the galaxy - live readings shown bright, remembered ones dimmed.</p>
+        <div class="csec"><h3>SPACE STATIONS</h3><div id="ctStations" class="crows"></div></div>
+        <div class="csec"><h3>ANOMALIES</h3><div id="ctAnoms" class="crows"></div></div>
+        <div class="csec"><h3>ALIEN CONTACTS</h3><div id="ctAliens" class="crows"></div></div>
       </div>
     </div>
     <div class="box" style="margin-top:8px">
@@ -423,6 +444,7 @@ function cmd(name) {
   if (U.sd && name !== 'sd') return;
   if (name === 'help') return showHelp();
   if (name === 'guide') return guideOpen ? hideGuide() : showGuide();
+  if (name === 'contacts') return contactsOpen ? hideContacts() : showContacts();
   if (name === 'pause') { U.paused = !U.paused; if (U.paused) engineOff(); else if (H.moving) engineOn(); return; }
   if (U.paused) return;
   if (name === 'stop') return stopShip('ION DRIVE DISENGAGED.');
@@ -1327,6 +1349,7 @@ const HELP = `GOAL: destroy every alien ship hiding in the 8x8 galaxy of quadran
 SHORT RANGE SCANNER: the small inset (top right of the main screen) shows the WHOLE quadrant - aliens, stars, planets, anomalies and mines (white box = what you can currently see). Press R to enlarge it.
 LONG RANGE SCANNER (galaxy map): reads your quadrant and the 8 ADJACENT quadrants live - aliens (skull), stars and planets in each. Quadrants further away show your last scan, dimmed. "???" means an anomaly is jamming the scanner - fly close to identify it.
 FIELD GUIDE (G): a visual reference showing every anomaly's identified sensor appearance and what it does, so you know what you're looking at before you fly into it.
+CONTACTS (C): a log of everything the long range scanner has found across the whole galaxy - space stations, anomalies (and their type, once identified), and alien ships not yet destroyed. Live readings (your current and adjacent quadrants) show bright; everywhere else shows your last scan, dimmed.
 
 DIRECTIONS use the NUMPAD (or the top-row digits):
    7 NW   8 N   9 NE
@@ -1452,7 +1475,7 @@ function paintGuideCard(gx, id, t) {
 let guideOpen = false;
 function showGuide() {
   if (U) U.paused = true; engineOff();
-  $('overlay').style.display = 'none';
+  $('overlay').style.display = 'none'; $('contactsOverlay').style.display = 'none'; contactsOpen = false;
   guideOpen = true; $('guideOverlay').style.display = 'block';
 }
 function hideGuide() {
@@ -1460,6 +1483,54 @@ function hideGuide() {
   if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); }
 }
 $('gClose').onclick = () => { initAudio(); hideGuide(); };
+
+// ================================================================ sector contacts (a log of what the long range scanner has found)
+// Only the important things are recorded: space stations, anomalies (and their type, once identified), and alien ships not yet
+// destroyed. Live readings (current + adjacent quadrants) show bright; everything else is the last remembered scan, dimmed.
+function buildContacts() {
+  const stations = [], anomalies = [], aliens = [];
+  for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
+    const q = Q(x, y), sc = isScanned(x, y);
+    let info = null, live = false;
+    if (sc) { info = qInfo(q); live = true; }
+    else if (q.mem) { info = q.mem.jammed ? { al: 0, sn: 0, an: { known: false } } : { al: q.mem.al, sn: q.mem.sn, an: q.mem.an ? { type: q.mem.an, known: true } : null }; }
+    if (!info) continue;
+    if (info.sn > 0) stations.push({ x, y, n: info.sn, live });
+    if (info.an) anomalies.push({ x, y, type: info.an.known ? info.an.type : null, live });
+    if (info.al > 0) aliens.push({ x, y, n: info.al, live });
+  }
+  return { stations, anomalies, aliens };
+}
+function contactRow(label, x, y, live, accent) {
+  const d = document.createElement('div'); d.className = 'crow' + (live ? '' : ' dim');
+  if (accent) d.style.borderLeft = `3px solid ${accent}`;
+  d.innerHTML = `<span class="cq">${x + 1},${y + 1}</span><span>${label}</span><span class="clive ${live ? 'live' : 'stale'}">${live ? 'LIVE' : 'LAST SCAN'}</span>`;
+  return d;
+}
+function renderContacts() {
+  const { stations, anomalies, aliens } = buildContacts();
+  const fill = (id, list, mapper) => {
+    const el = $(id); el.innerHTML = '';
+    if (!list.length) { el.innerHTML = '<div class="cnone">Nothing logged yet - explore to find out what\'s out there.</div>'; return; }
+    list.sort((a, b) => a.y - b.y || a.x - b.x);
+    for (const item of list) el.appendChild(mapper(item));
+  };
+  fill('ctStations', stations, s => contactRow(`SPACE STATION${s.n > 1 ? ' x' + s.n : ''}`, s.x, s.y, s.live, '#4fd8ff'));
+  fill('ctAnoms', anomalies, a => contactRow(a.type ? ANOM[a.type].name : 'UNIDENTIFIED ANOMALY', a.x, a.y, a.live, a.type ? ANOM[a.type].col : '#b08cff'));
+  fill('ctAliens', aliens, a => contactRow(`${a.n} ALIEN SHIP${a.n > 1 ? 'S' : ''}`, a.x, a.y, a.live, '#ff5c6c'));
+}
+let contactsOpen = false;
+function showContacts() {
+  if (U) U.paused = true; engineOff();
+  $('overlay').style.display = 'none'; $('guideOverlay').style.display = 'none'; guideOpen = false;
+  renderContacts();
+  contactsOpen = true; $('contactsOverlay').style.display = 'block';
+}
+function hideContacts() {
+  contactsOpen = false; $('contactsOverlay').style.display = 'none';
+  if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); }
+}
+$('ctClose').onclick = () => { initAudio(); hideContacts(); };
 
 // ================================================================ input
 const KEYDIR = { Numpad1: 1, Numpad2: 2, Numpad3: 3, Numpad4: 4, Numpad6: 6, Numpad7: 7, Numpad8: 8, Numpad9: 9, Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit6: 6, Digit7: 7, Digit8: 8, Digit9: 9 };
@@ -1486,9 +1557,9 @@ addEventListener('keydown', e => {
     case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
     case 'KeyD': cmd('dock'); break;
     case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break; case 'KeyS': case 'Digit0': case 'Numpad0': cmd('stop'); break; case 'KeyH': cmd('help'); break;
-    case 'KeyG': cmd('guide'); break;
+    case 'KeyG': cmd('guide'); break; case 'KeyC': cmd('contacts'); break;
     case 'Space': e.preventDefault(); cmd('pause'); break;
-    case 'Escape': if (guideOpen) { hideGuide(); break; } if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } U.pending = null; U.jm = null; break;
+    case 'Escape': if (guideOpen) { hideGuide(); break; } if (contactsOpen) { hideContacts(); break; } if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } U.pending = null; U.jm = null; break;
     case 'Equal': case 'NumpadAdd': setDist(H.dist + 1); break; case 'Minus': case 'NumpadSubtract': setDist(H.dist - 1); break;
   }
 });
@@ -1496,7 +1567,7 @@ function setDist(v) { H.dist = Math.max(1, Math.min(40, v)); $('dist').value = H
 $('dist').oninput = e => { H.dist = +e.target.value; };
 for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () => { initAudio(); heroDir(+b.dataset.d); };
 $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
-for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cGuide', 'guide'], ['cPause', 'pause'], ['cHelp', 'help']]) $(id).onclick = () => { initAudio(); cmd(n); };
+for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cGuide', 'guide'], ['cPause', 'pause'], ['cHelp', 'help'], ['cContacts', 'contacts']]) $(id).onclick = () => { initAudio(); cmd(n); };
 $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
 for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); else if (U.pending && U.pending.stage === 'pick') mineSelfDestruct(+b.dataset.n); };
 lr.addEventListener('pointerdown', e => {
