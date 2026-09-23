@@ -288,7 +288,7 @@ function newAlien(type, q, pos) {
 function newGame() {
   U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], remnants: [], pendingRemnants: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, px: 6, py: 6 };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, px: 6, py: 6 };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
@@ -666,37 +666,41 @@ function checkSector() {
 // plus a random jolt - and if the shields are already weak and there isn't enough reserve energy to hold them, the hull breach destroys the ship.
 const COLL_LABEL = { star: 'A STAR', planet: 'A PLANET', rock: 'AN ASTEROID', station: 'A SPACE STATION', nest: 'THE ALIEN NEST', alien: 'AN ALIEN SHIP' };
 function collisionDamage() { return 15 + H.remaining * 3 + ri(25); }
-// The 8 compass headings in on-screen order, so a heading can be nudged one 45-degree step at a time toward a target bearing.
+// The 8 compass headings in on-screen rotational order, so a heading can be walked one 45-degree step at a time around the ring.
 const DIR_RING = [6, 3, 2, 1, 4, 7, 8, 9];
-function bearingDir(dx, dy) {   // the heading whose vector points closest to (dx,dy)
-  const ang = Math.atan2(dy, dx); let best = 6, bd = Infinity;
-  for (const d of Object.keys(VEC)) {
-    const [vx, vy] = VEC[d], a2 = Math.atan2(vy, vx); let diff = Math.abs(ang - a2); if (diff > Math.PI) diff = 2 * Math.PI - diff;
-    if (diff < bd) { bd = diff; best = +d; }
-  }
+// Looks up to `look` sectors ahead along (x,y,dir) and returns the closest that ray ever comes to the hole - used to tell
+// whether the ship's CURRENT heading is already a safe passing distance away, or is still on course for a dangerously
+// close (or dead-on) pass and needs correcting.
+function minApproachDist(x, y, dir, hole, look) {
+  const [vx, vy] = VEC[dir]; let best = cheb(x, y, hole.x, hole.y);
+  for (let i = 1; i <= look; i++) { const dd = cheb(x + vx * i, y + vy * i, hole.x, hole.y); if (dd < best) best = dd; }
   return best;
 }
-function stepToward(cur, target) {   // rotates cur one 45-degree step toward target, the short way round
-  if (cur === target) return cur;
-  const ci = DIR_RING.indexOf(cur), ti = DIR_RING.indexOf(target), fwd = (ti - ci + 8) % 8, back = (ci - ti + 8) % 8;
-  return fwd <= back ? DIR_RING[(ci + 1) % 8] : DIR_RING[(ci + 7) % 8];
-}
-// A black hole bends a moving ship's course toward it instead of dragging it in outright (that only happens to a ship that
-// stops nearby - see the hole branch of updateAnomaly). Only nudges the heading while still 2-3 sectors out; right alongside
-// it (distance 1) there's no room left to safely correct, so the heading is left exactly as it is from there on. The swing
-// is also never allowed to complete a dead-on lock onto the hole's exact bearing (every neighbouring cell sits exactly along
-// one of the 8 compass directions, so reaching distance 1 already aimed at it would otherwise fly the ship straight in on
-// the very heading this bend put it on) - it stops one step short instead. A heading the player already had before entering
-// the well can still carry them straight into the hole; that's on them, not the gravity well (rule: still fatal either way).
+// A black hole bends a moving ship's course into a gravity-assist swing instead of dragging it in outright (that only
+// happens to a ship that stops nearby - see the hole branch of updateAnomaly). The rotational sense (clockwise or counter-
+// clockwise) is locked in once, the instant the ship enters the well, from which side of its heading the hole sits on -
+// every correction from then on nudges the heading one more 45-degree step the SAME way. That's what makes the ship curve
+// in close on one side and swing on round to exit the FAR side, rather than aiming closer to the hole's centre and stopping
+// once "aimed enough" (which only ever pulls the ship in on the near side and back out the way it came - a near-miss, not
+// a slingshot). Correction only happens while the CURRENT heading is still on course to pass within 1 sector of the hole
+// (or hit it outright) - a heading that's already clearing it safely is left alone, so a wide miss sails past dead straight
+// and only a close graze actually gets swung. Two exceptions: a step is skipped (not the correction abandoned) on the one
+// tick it would land right on the hole's own cell; and a heading that was ALREADY aimed dead-on the moment it entered the
+// well is never corrected at all - that's the player's own doing from outside the well, and stays fatal if it reaches it.
 function applyHoleBend() {
   const q = curQ(), hole = q.anom && q.anom.type === 'hole' ? q.anom : null, d = hole ? cheb(H.x, H.y, hole.x, hole.y) : 99;
-  if (!hole || d > 3) { H.holeBendN = 0; return; }
-  if (d < 2 || H.holeBendN >= 2) return;
-  const dx0 = hole.x - H.x, dy0 = hole.y - H.y, want = bearingDir(dx0, dy0); if (want === H.dir) return;
-  const nd = stepToward(H.dir, want);
-  if (nd === want && (dx0 === 0 || dy0 === 0 || Math.abs(dx0) === Math.abs(dy0))) return;   // that step would lock dead onto the hole - stop short
+  if (!hole || d > 3) { H.holeBendN = 0; H.holeSpin = 0; H.holeLockout = false; return; }
+  const dx0 = hole.x - H.x, dy0 = hole.y - H.y;
+  H.holeOff.x = dx0 / d * .25; H.holeOff.y = dy0 / d * .25;   // a small cosmetic tug while in range, eases back out in update()
+  if (H.holeSpin === 0 && !H.holeLockout) {
+    const [vx, vy] = VEC[H.dir], cross = vx * dy0 - vy * dx0;   // which side of the ship's heading the hole sits on
+    if (cross === 0) { H.holeLockout = true; return; }   // aimed dead at it already - not the well's doing, hands off
+    H.holeSpin = cross > 0 ? 1 : -1;
+  }
+  if (H.holeLockout || H.holeBendN >= 6 || minApproachDist(H.x, H.y, H.dir, hole, 6) > 1) return;
+  const idx = DIR_RING.indexOf(H.dir), nd = DIR_RING[(idx + H.holeSpin + 8) % 8], [ndx, ndy] = VEC[nd];
+  if (H.x + ndx === hole.x && H.y + ndy === hole.y) return;   // this step would land right on the hole - skip it, try again next tick
   H.dir = nd; H.holeBendN++;
-  H.holeOff.x = dx0 / d * .4; H.holeOff.y = dy0 / d * .4;   // a small cosmetic swing off centerline, eases back out in update()
   if (H.holeBendN === 1) { say('GRAVITY WELL: YOUR COURSE IS BENDING TOWARD THE BLACK HOLE!', 'warn'); sfx.alert(); }
 }
 function heroMoveStep() {
