@@ -61,6 +61,7 @@
   button.lk { border-color: #4a4f66; background: #0d1122; color: #5a6280; } button.lk.unlocked.wp { border-color: #c08bff; background: #2a1650; color: #e0c8ff; }
   button.lk.unlocked.dg { border-color: #ffe14d; background: #4a3a0a; color: #ffe9a0; } button.lk small { color: inherit; opacity: .85; }
   #jnums { display: none; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 8px; } #jnums button { padding: 10px 0; border-color: #c08bff; background: #2a1650; }
+  #lpat { display: none; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 8px; } #lpat button { padding: 10px 0; border-color: #ffc447; background: #4a3a0a; color: #ffe9a0; }
   #ctl { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin-top: 8px; }
   #compass { display: grid; grid-template-columns: repeat(3, 46px); gap: 4px; }
   #compass button { padding: 0; height: 46px; font-size: 18px; } #compass .c { border-color: var(--red); color: #ffb3bb; background: #4a1420; font-size: 13px; }
@@ -115,11 +116,13 @@
       </div>
     </div>
     <div id="jnums"><button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button><button data-n="4">4</button><button data-n="5">5</button><button data-n="6">6</button><button data-n="7">7</button><button data-n="8">8</button><button data-n="9">9</button><button data-n="10">10</button></div>
+    <div id="lpat"><button data-p="S">STRAIGHT<small>S</small></button><button data-p="L">BACK-LEFT<small>L</small></button><button data-p="R">BACK-RIGHT<small>R</small></button><button data-p="A">ARC<small>A</small></button></div>
     <div id="cmds">
       <button id="cMove" class="go">ION DRIVE<small>I</small></button>
       <button id="cPhaser" class="wp">PHASER<small>P</small></button>
       <button id="cTorp" class="wp">TORPEDO<small>T</small></button>
       <button id="cMine" class="wp">LAUNCH MINE<small>L</small></button>
+      <button id="cMineLay" class="wp">LAY MINEFIELD<small>L D</small></button>
       <button id="cMineSD" class="dg">MINE SELF DESTRUCT<small>B</small></button>
       <button id="cDisr" class="wp lk">DISRUPTOR<small>X</small></button>
       <button id="cNova" class="dg lk">NOVA TORPEDO<small>V</small></button>
@@ -186,7 +189,7 @@ const lrSweep = $('lrSweep'), gs = lrSweep.getContext('2d');
 c.setTransform(2, 0, 0, 2, 0, 0); g.setTransform(2, 0, 0, 2, 0, 0);
 const rnd = Math.random, ri = n => rnd() * n | 0, cheb = (a, b, c2, d) => Math.max(Math.abs(a - c2), Math.abs(b - d));
 const VEC = { 7: [-1, -1], 8: [0, -1], 9: [1, -1], 4: [-1, 0], 6: [1, 0], 1: [-1, 1], 2: [0, 1], 3: [1, 1] };
-const MAXE = 2000, STEP = 0.22;
+const MAXE = 2000, STEP = 0.22, MINE_ARM_DIST = 2;
 const ATYPES = {
   scout:      { name: 'SCOUT',        hp: 40,  step: .55, pref: 4, ph: 8,  pcd: 2.2, torp: 0, mine: 0, cloak: 0, col: '#7dff7d' },
   raider:     { name: 'RAIDER',       hp: 80,  step: .9,  pref: 5, ph: 10, pcd: 2.6, torp: 0, mine: 1, cloak: 0, col: '#ffb347' },
@@ -466,11 +469,12 @@ function cmd(name) {
   if (name === 'sd') return selfDestruct();
   if (name === 'dock') return dock();
   if (name === 'minesd') return enterMineSD();
+  if (name === 'minelay') return enterMineLay();
   if (name === 'disr' && !H.disrUnlocked) return say('DISRUPTOR NOT YET UNLOCKED.', 'warn');
   if (name === 'nova' && !H.novaUnlocked) return say('NOVA TORPEDO NOT YET UNLOCKED.', 'warn');
-  if (H.docking && ['phaser', 'torp', 'mine', 'disr', 'nova'].includes(name)) return say('WEAPONS OFFLINE WHILE DOCKED - PRESS D TO UNDOCK.', 'warn');
+  if (H.docking && ['phaser', 'torp', 'mine', 'minelay', 'disr', 'nova'].includes(name)) return say('WEAPONS OFFLINE WHILE DOCKED - PRESS D TO UNDOCK.', 'warn');
   if (H.docking && ['move', 'jump'].includes(name)) undock();
-  if (H.crippled > 0 && ['move', 'phaser', 'torp', 'mine', 'jump', 'disr', 'nova'].includes(name)) return say('SYSTEMS OFFLINE - THE SHIP IS CRIPPLED!', 'bad');
+  if (H.crippled > 0 && ['move', 'phaser', 'torp', 'mine', 'minelay', 'jump', 'disr', 'nova'].includes(name)) return say('SYSTEMS OFFLINE - THE SHIP IS CRIPPLED!', 'bad');
   if (name === 'jump') { if (U.jm) { U.jm = null; return; } enterJump(); return; }
   U.jm = null;
   if (H.jump) { say('HYPERDRIVE SPOOLING - CONTROLS LOCKED.', 'warn'); return; }
@@ -566,6 +570,58 @@ function launchMine(d, n) {
   H.mines--; const [vx, vy] = VEC[d];
   U.proj.push({ owner: 'hero', mine: true, x: H.x, y: H.y, vx, vy, sp: 4, dmg: 0, cx: H.x, cy: H.y, life: 15, left: n }); sfx.mine();
   say(`MINE LAUNCHED ${dirName(d)} FOR ${n} SECTOR${n > 1 ? 'S' : ''}.${n === 1 ? ' WARNING: IT WILL EXPLODE NEXT TO YOU!' : ''}`, n === 1 ? 'warn' : '');
+}
+// LAY MINEFIELD: L then D (for "drop"), a count 1-9 (0 = 10), then a pattern letter - S (straight line behind the ship),
+// L (diagonal back-left), R (diagonal back-right) or A (a fan spread across the rear arc). Unlike a launched mine, a laid
+// one doesn't travel and doesn't need a tracked ID - it's planted right where it's dropped and only ever goes off if
+// something else touches it (a ship, an alien, a weapon hit, or another blast reaching its cell). It arms once the ship
+// is MINE_ARM_DIST sectors clear (see the mines-arming block in update()), and stays armed after that even if the ship
+// comes back. Comes out of the same H.mines stock as the launched kind - it's a laying method, not a separate weapon.
+function enterMineLay() {
+  if (H.mines <= 0) return say('NO MINES REMAIN.', 'bad');
+  U.pending = { cmd: 'mine', stage: 'layCount', t: 8 }; sfx.click();
+}
+function mineLayCount(n) {
+  if (n > H.mines) { U.pending = null; return say(`ONLY ${H.mines} MINE${H.mines === 1 ? '' : 'S'} LEFT TO LAY.`, 'warn'); }
+  U.pending = { cmd: 'mine', stage: 'layPattern', count: n, t: 8 };
+}
+function layMines(pattern) {
+  const n = U.pending.count; U.pending = null;
+  if (n > H.mines) return say('NOT ENOUGH MINES REMAIN.', 'bad');
+  const q = curQ(), ringDir = i => DIR_RING[((i % 8) + 8) % 8], behindIdx = (DIR_RING.indexOf(H.dir) + 4) % 8;
+  const cells = [];
+  if (pattern === 'A') {   // a fan spanning the rear arc - one mine per direction, then a second ring further out once all 5 are used
+    const fan = [behindIdx, behindIdx + 1, behindIdx - 1, behindIdx + 2, behindIdx - 2].map(ringDir);
+    for (let i = 0; i < n; i++) { const dir = fan[i % fan.length], ring = Math.floor(i / fan.length) + 1, [vx, vy] = VEC[dir]; cells.push({ x: H.x + vx * ring, y: H.y + vy * ring, vx, vy }); }
+  } else {   // S: straight behind; L/R: diagonally back-left / back-right
+    const dir = ringDir(pattern === 'L' ? behindIdx + 1 : pattern === 'R' ? behindIdx - 1 : behindIdx), [vx, vy] = VEC[dir];
+    for (let i = 1; i <= n; i++) cells.push({ x: H.x + vx * i, y: H.y + vy * i, vx, vy });
+  }
+  for (const c of cells) if (c.x < 0 || c.y < 0 || c.x >= SN || c.y >= SN) return say('CANNOT LAY MINES THERE - TOO CLOSE TO THE EDGE OF THE QUADRANT.', 'warn');
+  const shifts = [];   // existing hero mines caught in the pattern get pushed further back to make room, not left in place
+  for (const c of cells) {
+    const b = blockerAt(q, c.x, c.y);
+    if (b && b.t !== 'hero') return say(`CANNOT LAY MINES THERE - ${COLL_LABEL[b.t] || 'AN OBSTACLE'} IS IN THE WAY.`, 'warn');
+    const existing = q.mines.find(m => m.x === c.x && m.y === c.y && !shifts.some(s => s[0] === m));
+    if (!existing) continue;
+    if (existing.owner !== 'hero') return say('CANNOT LAY MINES THERE - AN ENEMY MINE IS IN THE WAY.', 'warn');
+    let sx = c.x, sy = c.y, found = false;
+    for (let tries = 0; tries < 12 && !found; tries++) {
+      sx += c.vx; sy += c.vy;
+      if (sx < 0 || sy < 0 || sx >= SN || sy >= SN) break;
+      const bb = blockerAt(q, sx, sy);
+      if (bb && bb.t !== 'hero') break;
+      if (cells.some(cc => cc.x === sx && cc.y === sy)) continue;   // that spot's about to hold one of the new mines
+      if (q.mines.some(m => m !== existing && m.x === sx && m.y === sy) && !shifts.some(s => s[1] === sx && s[2] === sy)) continue;
+      found = true;
+    }
+    if (!found) return say('CANNOT LAY MINES THERE - NO ROOM TO CLEAR THE EXISTING MINES.', 'warn');
+    shifts.push([existing, sx, sy]);
+  }
+  for (const [m, sx, sy] of shifts) { m.x = sx; m.y = sy; }
+  for (const c of cells) q.mines.push({ x: c.x, y: c.y, owner: 'hero', laid: true, arm: 1 });
+  H.mines -= n; sfx.mine();
+  say(`MINEFIELD LAID: ${n} MINE${n > 1 ? 'S' : ''} DROPPED. ARMS ONCE YOU'RE ${MINE_ARM_DIST} SECTORS CLEAR.`, 'good');
 }
 // MINE SELF-DESTRUCT: press the button, then 1 or 2, to remotely detonate that mine in flight right where it currently is.
 function enterMineSD() {
@@ -829,8 +885,9 @@ function update(dt) {
   // anomaly identification
   const an = curQ().anom; if (an && !an.known && cheb(H.x, H.y, an.x, an.y) <= anIdR(an)) { an.known = true; sfx.ping(); say(`SHORT RANGE SENSORS IDENTIFY: ${ANOM[an.type].name}.`, 'warn'); }
   updateAnomaly(q, dt); updateStations(q, dt); updateRemnants(q, dt);
-  // mines arming
-  for (const m of q.mines) if (m.arm > 0) m.arm -= dt;
+  // mines arming - a launched or alien mine arms after a short countdown; a laid (static) mine instead arms once the
+  // ship that planted it has put MINE_ARM_DIST sectors between itself and the mine, and then stays armed for good.
+  for (const m of q.mines) { if (m.arm <= 0) continue; if (m.laid) { if (cheb(H.x, H.y, m.x, m.y) >= MINE_ARM_DIST) m.arm = 0; } else m.arm -= dt; }
   // aliens
   let disturb = false;
   for (const a of q.aliens.slice()) { updateAlien(a, dt * tsAt(a.x, a.y)); if (a.cloaked && cheb(a.x, a.y, H.x, H.y) <= 4) disturb = true; }
@@ -1240,7 +1297,10 @@ function drawMine(ctx, m, x, y, t) {
   const armed = m.arm <= 0; ctx.save(); ctx.translate(x, y); ctx.fillStyle = '#1a1f2a'; ctx.strokeStyle = '#8a95a8'; ctx.lineWidth = 1.5;
   for (let i = 0; i < 8; i++) { const an = i * Math.PI / 4; ctx.beginPath(); ctx.moveTo(Math.cos(an) * 5, Math.sin(an) * 5); ctx.lineTo(Math.cos(an) * 9, Math.sin(an) * 9); ctx.stroke(); }
   ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, 6.3); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = (((t * (armed ? 2 : 8)) | 0) & 1) ? (m.owner === 'hero' ? '#4fd8ff' : '#ff4d5e') : '#333'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, 6.3); ctx.fill(); ctx.restore();
+  // same housing as a launched mine, but a laid (static) one blinks amber instead of cyan, and at its own pace - slow
+  // while it's still safe to approach (arming), quickening once it's live - rather than the launched mine's fast-then-slow.
+  const col = m.laid ? '#ffc447' : (m.owner === 'hero' ? '#4fd8ff' : '#ff4d5e'), rate = m.laid ? (armed ? 6 : 1.5) : (armed ? 2 : 8);
+  ctx.fillStyle = (((t * rate) | 0) & 1) ? col : '#333'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, 6.3); ctx.fill(); ctx.restore();
 }
 
 // ================================================================ drawing: short range
@@ -1417,7 +1477,7 @@ function drawMini(t, cam) {
   if (big && q.anom && q.anom.known && ['nebula', 'timewarp'].includes(q.anom.type)) { c.fillStyle = 'rgba(185,123,255,.13)'; c.fillRect((q.anom.x - 4) * k, (q.anom.y - 4) * k, 9 * k, 9 * k); }
   if (q.anom) { c.fillStyle = '#c08bff'; c.fillRect(q.anom.x * k - 1, q.anom.y * k - 1, d + 2, d + 2); if (big) { c.font = 'bold 10px "Courier New"'; c.textAlign = 'left'; c.fillText(q.anom.known ? ANOM[q.anom.type].name : '?', q.anom.x * k + 8, q.anom.y * k + 8); } }
   c.fillStyle = ANOM.radiat.col; for (const r of q.remnants) { c.fillRect(r.x * k - 1, r.y * k - 1, d + 2, d + 2); if (big) { c.font = 'bold 10px "Courier New"'; c.textAlign = 'left'; c.fillText('RADIATION CLOUD', r.x * k + 8, r.y * k + 4); } }
-  for (const m of q.mines) { if (m.owner === 'hero') { c.fillStyle = '#4fd8ff'; c.fillRect(m.x * k, m.y * k, d, d); } else if (cheb(m.x, m.y, H.x, H.y) <= 3) { c.fillStyle = '#ff4d5e'; c.fillRect(m.x * k, m.y * k, d, d); } }
+  for (const m of q.mines) { if (m.owner === 'hero') { c.fillStyle = m.laid ? '#ffc447' : '#4fd8ff'; c.fillRect(m.x * k, m.y * k, d, d); } else if (cheb(m.x, m.y, H.x, H.y) <= 3) { c.fillStyle = '#ff4d5e'; c.fillRect(m.x * k, m.y * k, d, d); } }
   for (const a of q.aliens) if (!(a.cloaked && a.vis < .15) && !alienHidden(q, a)) { c.fillStyle = ATYPES[a.type].col; c.fillRect(a.x * k - 1, a.y * k - 1, d + 2, d + 2); c.strokeStyle = '#ff4d5e'; c.lineWidth = 1; c.strokeRect(a.x * k - 2, a.y * k - 2, d + 4, d + 4); }
   c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1; c.strokeRect(cam.x * k, cam.y * k, VIEW * k, VIEW * k);
   if (((t * 3) | 0) & 1) { c.fillStyle = '#fff'; c.fillRect(H.x * k - 2, H.y * k - 2, d + 3, d + 3); }
@@ -1495,14 +1555,17 @@ function updateHUD() {
   else if (H.jump) p = 'HYPERDRIVE CHARGING...';
   else if (U.pending && U.pending.stage === 'dist') p = `MINE ${dirName(U.pending.dir)}: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY SECTORS IT TRAVELS BEFORE EXPLODING. 1 WILL BLAST YOU TOO!`;
   else if (U.pending && U.pending.stage === 'pick') p = `MINE SELF DESTRUCT: PRESS 1 OR 2 TO CHOOSE WHICH MINE IN FLIGHT TO DETONATE (${U.proj.filter(pr => pr.mine && pr.owner === 'hero').length} IN FLIGHT).`;
-  else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9)', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
+  else if (U.pending && U.pending.stage === 'layCount') p = `LAY MINEFIELD: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY TO DROP (${H.mines} AVAILABLE).`;
+  else if (U.pending && U.pending.stage === 'layPattern') p = `LAY MINEFIELD (${U.pending.count}): PRESS S (STRAIGHT BEHIND), L (BACK-LEFT DIAGONAL), R (BACK-RIGHT DIAGONAL) OR A (ARC).`;
+  else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9) TO LAUNCH ONE, OR D TO LAY A STATIC MINEFIELD INSTEAD', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.collision) p = `⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD! CHANGE COURSE (NUMPAD) OR STOP (S).`;
   else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S, 0 OR 5 STOPS.`;
   else p = 'READY.';
   $('prompt').textContent = p;
   $('distv').textContent = H.dist; $('distc').textContent = 'ENERGY COST ' + driveCost(H.dist);
-  $('jnums').style.display = (U.jm || (U.pending && U.pending.stage)) ? 'grid' : 'none';
-  for (const b of document.querySelectorAll('#jnums [data-n]')) b.style.display = (U.pending && U.pending.stage === 'pick' && +b.dataset.n > 2) ? 'none' : '';
+  $('jnums').style.display = (U.jm || (U.pending && U.pending.stage && U.pending.stage !== 'layPattern')) ? 'grid' : 'none';
+  for (const b of document.querySelectorAll('#jnums [data-n]')) b.style.display = (U.pending && U.pending.stage === 'pick' && +b.dataset.n > 2) || (U.pending && U.pending.stage === 'layCount' && +b.dataset.n > H.mines) ? 'none' : '';
+  $('lpat').style.display = (U.pending && U.pending.stage === 'layPattern') ? 'grid' : 'none';
 }
 function showOverlay(t, m, b, cb) { $('ovT').textContent = t; $('ovM').textContent = m; $('ovB').textContent = b; $('overlay').style.display = 'flex'; $('ovB').onclick = () => { initAudio(); $('overlay').style.display = 'none'; cb(); }; }
 const HELP = `GOAL: destroy every alien ship hiding in the 8x8 galaxy of quadrants. Each quadrant is 32x32 sectors, so the main screen shows a 16x16 window that follows your ship.
@@ -1528,7 +1591,8 @@ NOVA TORPEDO (V) + direction - unlocked at level 6: the most lethal weapon aboar
 MINE (L) + direction + a number 1-9 (0 = 10): launches a mine that travels that many sectors. It explodes at the end of its run, or as soon as it hits a ship or any obstacle. The blast destroys everything in that sector and all 8 around it - alien ships, rocks and nests, and it damages space stations. A distance of 1 will blast you too! Max 2 mines in flight.
  If a mine hits a STAR it triggers a SUPERNOVA - total devastation for 4 sectors around, and the star itself is gone. Once the blast dies down, the wreckage condenses into a fresh RADIATION CLOUD at that sector - a standing hazard from then on, just like a natural one. If a mine hits a PLANET, the planet is shattered and its remains become DEBRIS scattered across the impact area - the debris blocks movement and shots just like an asteroid, and can be blasted apart with a torpedo, mine or nova.
 Alien minelayers still drop static mines that sit in space until something touches them (or a beam or torpedo hits them).
-MINE SELF DESTRUCT (B), then 1 or 2: remotely detonates one of your mines already in flight, right where it currently is - including triggering a supernova or shattering a planet if that's what it's sitting over.
+LAY MINEFIELD: press L then D (for "drop"), a number 1-9 (0 = 10) for how many to lay, then S/L/R/A for the pattern - S lays them in a straight line behind you, L and R lay them diagonally back-left or back-right, and A fans them out across a wider arc behind you. Unlike a launched mine these don't travel and don't need tracking - they're planted right where you drop them (amber, blinking, same housing as a launched mine) and only ever go off if something else touches them. They arm once you're 2 sectors clear and stay armed after that, even if you come back. Comes out of the same mine stock as the launched kind. If the sectors behind you already hold one of your own mines, it's shifted further back to make room; anything else in the way (a star, an alien, an enemy mine...) cancels the whole lay with a warning.
+MINE SELF DESTRUCT (B), then 1 or 2: remotely detonates one of your mines already in flight, right where it currently is - including triggering a supernova or shattering a planet if that's what it's sitting over. Only works on a mine still travelling - a laid mine has to be triggered the normal way.
 HYPERJUMP (J) + a number 1-9 (0 = 10): jumps that many sectors in a RANDOM direction after a 2 second spool-up. You may end up in another quadrant. Costs more energy the further you jump.
 SELF DESTRUCT (K): a LAST RESORT weapon. 5 second countdown, then everything in the quadrant is destroyed - including you. Press K again to cancel.
 SPACE pauses. Weapons work while moving.
@@ -1711,6 +1775,15 @@ addEventListener('keydown', e => {
     const m = /^(?:Digit|Numpad)([12])$/.exec(k);
     if (m) { e.preventDefault(); mineSelfDestruct(+m[1]); return; }
   }
+  if (U.pending && U.pending.cmd === 'mine' && !U.pending.stage && k === 'KeyD') { e.preventDefault(); enterMineLay(); return; }   // L then D: lay a minefield instead of launching a single mine
+  if (U.pending && U.pending.stage === 'layCount') {   // lay minefield: a number key chooses how many to drop (0 = 10)
+    const m = /^(?:Digit|Numpad)(\d)$/.exec(k);
+    if (m) { e.preventDefault(); mineLayCount(+m[1] || 10); return; }
+  }
+  if (U.pending && U.pending.stage === 'layPattern') {   // lay minefield: S/L/R/A picks the pattern
+    const pat = { KeyS: 'S', KeyL: 'L', KeyR: 'R', KeyA: 'A' }[k];
+    if (pat) { e.preventDefault(); layMines(pat); return; }
+  }
   if (dd) { e.preventDefault(); heroDir(dd); return; }
   switch (k) {
     case 'KeyI': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyL': cmd('mine'); break;
@@ -1733,9 +1806,10 @@ function setDist(v) { H.dist = Math.max(1, Math.min(40, v)); $('dist').value = H
 $('dist').oninput = e => { H.dist = +e.target.value; };
 for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () => { initAudio(); heroDir(+b.dataset.d); };
 $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
-for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cGuide', 'guide'], ['cPause', 'pause'], ['cHelp', 'help'], ['cContacts', 'contacts']]) $(id).onclick = () => { initAudio(); cmd(n); };
+for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineLay', 'minelay'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cGuide', 'guide'], ['cPause', 'pause'], ['cHelp', 'help'], ['cContacts', 'contacts']]) $(id).onclick = () => { initAudio(); cmd(n); };
 $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
-for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); else if (U.pending && U.pending.stage === 'pick') mineSelfDestruct(+b.dataset.n); };
+for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); else if (U.pending && U.pending.stage === 'pick') mineSelfDestruct(+b.dataset.n); else if (U.pending && U.pending.stage === 'layCount') mineLayCount(+b.dataset.n); };
+for (const b of document.querySelectorAll('#lpat [data-p]')) b.onclick = () => { initAudio(); if (U.pending && U.pending.stage === 'layPattern') layMines(b.dataset.p); };
 lr.addEventListener('pointerdown', e => {
   initAudio(); if (!U) return; const r = lr.getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / r.width * GN), y = Math.floor((e.clientY - r.top) / r.height * GN);
   const q = Q(x, y), sc = isScanned(x, y), i = sc ? qInfo(q) : (q.mem && !q.mem.jammed ? q.mem : null), fmt = i => `${i.al} ALIEN${i.al === 1 ? '' : 'S'}, ${i.st} STARS, ${i.pl} PLANETS, ${i.sn} STATION${i.sn === 1 ? '' : 'S'}.`;
