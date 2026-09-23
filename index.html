@@ -1193,24 +1193,29 @@ function updateAlien(a, dt) {
   }
   // movement — follows a plotted detour path when it has one, so a star/planet/debris field in the way gets routed
   // around instead of the ship pacing helplessly along its edge; falls back to the short-sighted greedy step otherwise,
-  // and plots a detour once that greedy step has failed to make progress for a few ticks in a row.
+  // and plots a detour once that greedy step has failed to make progress for a few ticks in a row. A hero-laid mine
+  // isn't a hard obstacle like a rock or a star - aliens are wary of a known armed one (usually steer around it, same as
+  // the path-follow branch usually abandoning a route that leads onto one) but not infallible, so a live minefield still
+  // claims the occasional careless or cornered ship, not just ones that wander in blind.
   if (a.stepT <= 0) {
     a.stepT = T.step * (.85 + rnd() * .3);
     const curD = Math.max(Math.abs(tx - a.x), Math.abs(ty - a.y));
     if (a.path && a.path.length) {
       const [nx, ny] = a.path[0];
-      if (nx >= 0 && ny >= 0 && nx < SN && ny < SN && !blockerAt(q, nx, ny) && !q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny)) {
+      const mined = q.mines.some(m => m.owner === 'hero' && m.arm <= 0 && m.x === nx && m.y === ny);
+      if (nx >= 0 && ny >= 0 && nx < SN && ny < SN && !blockerAt(q, nx, ny) && !q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny) && !(mined && rnd() < .7)) {
         a.path.shift(); a.x = nx; a.y = ny;
         const m = q.mines.find(m => m.owner === 'hero' && m.x === a.x && m.y === a.y && m.arm <= 0); if (m) { detonate(q, m); return; }
-      } else a.path = null;   // something moved into the planned cell - drop the stale route and re-plan
+      } else a.path = null;   // something moved into the planned cell (or it thought better of the mine) - drop the stale route and re-plan
     }
     if (!a.path || !a.path.length) {
       let best = null, bs = -1e9;
       for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
         const nx = a.x + ox, ny = a.y + oy; if (nx < 0 || ny < 0 || nx >= SN || ny >= SN) continue;
         if ((ox || oy) && (blockerAt(q, nx, ny) || q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny))) continue;
+        const mined = q.mines.some(m => m.owner === 'hero' && m.arm <= 0 && m.x === nx && m.y === ny);
         const ddx = tx - nx, ddy = ty - ny, d = Math.max(Math.abs(ddx), Math.abs(ddy)), al = (ddx === 0 || ddy === 0 || Math.abs(ddx) === Math.abs(ddy)) && d > 0;
-        const s = -Math.abs(d - T.pref) + (al ? 3 : 0) + rnd() * .9 - (ox || oy ? 0 : .6);
+        const s = -Math.abs(d - T.pref) + (al ? 3 : 0) + rnd() * .9 - (ox || oy ? 0 : .6) - (mined ? 3 : 0);
         if (s > bs) { bs = s; best = [nx, ny]; }
       }
       if (best && (best[0] !== a.x || best[1] !== a.y)) {
@@ -1555,7 +1560,7 @@ function updateHUD() {
   else if (H.jump) p = 'HYPERDRIVE CHARGING...';
   else if (U.pending && U.pending.stage === 'dist') p = `MINE ${dirName(U.pending.dir)}: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY SECTORS IT TRAVELS BEFORE EXPLODING. 1 WILL BLAST YOU TOO!`;
   else if (U.pending && U.pending.stage === 'pick') p = `MINE SELF DESTRUCT: PRESS 1 OR 2 TO CHOOSE WHICH MINE IN FLIGHT TO DETONATE (${U.proj.filter(pr => pr.mine && pr.owner === 'hero').length} IN FLIGHT).`;
-  else if (U.pending && U.pending.stage === 'layCount') p = `LAY MINEFIELD: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY TO DROP (${H.mines} AVAILABLE).`;
+  else if (U.pending && U.pending.stage === 'layCount') p = `LAY MINEFIELD: PRESS A NUMBER FOR HOW MANY TO DROP (1-${H.mines} AVAILABLE).`;
   else if (U.pending && U.pending.stage === 'layPattern') p = `LAY MINEFIELD (${U.pending.count}): PRESS S (STRAIGHT BEHIND), L (BACK-LEFT DIAGONAL), R (BACK-RIGHT DIAGONAL) OR A (ARC).`;
   else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9) TO LAUNCH ONE, OR D TO LAY A STATIC MINEFIELD INSTEAD', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.collision) p = `⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD! CHANGE COURSE (NUMPAD) OR STOP (S).`;
@@ -1591,7 +1596,7 @@ NOVA TORPEDO (V) + direction - unlocked at level 6: the most lethal weapon aboar
 MINE (L) + direction + a number 1-9 (0 = 10): launches a mine that travels that many sectors. It explodes at the end of its run, or as soon as it hits a ship or any obstacle. The blast destroys everything in that sector and all 8 around it - alien ships, rocks and nests, and it damages space stations. A distance of 1 will blast you too! Max 2 mines in flight.
  If a mine hits a STAR it triggers a SUPERNOVA - total devastation for 4 sectors around, and the star itself is gone. Once the blast dies down, the wreckage condenses into a fresh RADIATION CLOUD at that sector - a standing hazard from then on, just like a natural one. If a mine hits a PLANET, the planet is shattered and its remains become DEBRIS scattered across the impact area - the debris blocks movement and shots just like an asteroid, and can be blasted apart with a torpedo, mine or nova.
 Alien minelayers still drop static mines that sit in space until something touches them (or a beam or torpedo hits them).
-LAY MINEFIELD: press L then D (for "drop"), a number 1-9 (0 = 10) for how many to lay, then S/L/R/A for the pattern - S lays them in a straight line behind you, L and R lay them diagonally back-left or back-right, and A fans them out across a wider arc behind you. Unlike a launched mine these don't travel and don't need tracking - they're planted right where you drop them (amber, same housing as a launched mine - dark and still while unarmed, blinking once it's live) and only ever go off if something else touches them. They arm once you're 2 sectors clear and stay armed after that, even if you come back. Comes out of the same mine stock as the launched kind. If the sectors behind you already hold one of your own mines, it's shifted further back to make room; anything else in the way (a star, an alien, an enemy mine...) cancels the whole lay with a warning.
+LAY MINEFIELD: press L then D (for "drop"), a number for how many to lay (capped at your mine stock, max 6), then S/L/R/A for the pattern - S lays them in a straight line behind you, L and R lay them diagonally back-left or back-right, and A fans them out across a wider arc behind you. Unlike a launched mine these don't travel and don't need tracking - they're planted right where you drop them (amber, same housing as a launched mine - dark and still while unarmed, blinking once it's live) and only ever go off if something else touches them. They arm once you're 2 sectors clear and stay armed after that, even if you come back. Comes out of the same mine stock as the launched kind. If the sectors behind you already hold one of your own mines, it's shifted further back to make room; anything else in the way (a star, an alien, an enemy mine...) cancels the whole lay with a warning.
 MINE SELF DESTRUCT (B), then 1 or 2: remotely detonates one of your mines already in flight, right where it currently is - including triggering a supernova or shattering a planet if that's what it's sitting over. Only works on a mine still travelling - a laid mine has to be triggered the normal way.
 HYPERJUMP (J) + a number 1-9 (0 = 10): jumps that many sectors in a RANDOM direction after a 2 second spool-up. You may end up in another quadrant. Costs more energy the further you jump.
 SELF DESTRUCT (K): a LAST RESORT weapon. 5 second countdown, then everything in the quadrant is destroyed - including you. Press K again to cancel.
