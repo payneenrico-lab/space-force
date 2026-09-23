@@ -288,7 +288,7 @@ function newAlien(type, q, pos) {
 function newGame() {
   U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], remnants: [], pendingRemnants: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0 };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
@@ -666,7 +666,37 @@ function checkSector() {
 // plus a random jolt - and if the shields are already weak and there isn't enough reserve energy to hold them, the hull breach destroys the ship.
 const COLL_LABEL = { star: 'A STAR', planet: 'A PLANET', rock: 'AN ASTEROID', station: 'A SPACE STATION', nest: 'THE ALIEN NEST', alien: 'AN ALIEN SHIP' };
 function collisionDamage() { return 15 + H.remaining * 3 + ri(25); }
+// The 8 compass headings in on-screen order, so a heading can be nudged one 45-degree step at a time toward a target bearing.
+const DIR_RING = [6, 3, 2, 1, 4, 7, 8, 9];
+function bearingDir(dx, dy) {   // the heading whose vector points closest to (dx,dy)
+  const ang = Math.atan2(dy, dx); let best = 6, bd = Infinity;
+  for (const d of Object.keys(VEC)) {
+    const [vx, vy] = VEC[d], a2 = Math.atan2(vy, vx); let diff = Math.abs(ang - a2); if (diff > Math.PI) diff = 2 * Math.PI - diff;
+    if (diff < bd) { bd = diff; best = +d; }
+  }
+  return best;
+}
+function stepToward(cur, target) {   // rotates cur one 45-degree step toward target, the short way round
+  if (cur === target) return cur;
+  const ci = DIR_RING.indexOf(cur), ti = DIR_RING.indexOf(target), fwd = (ti - ci + 8) % 8, back = (ci - ti + 8) % 8;
+  return fwd <= back ? DIR_RING[(ci + 1) % 8] : DIR_RING[(ci + 7) % 8];
+}
+// A black hole bends a moving ship's course toward it instead of dragging it in outright (that only happens to a ship that
+// stops nearby - see the hole branch of updateAnomaly). Up to 2 nudges of one 45-degree heading step per flyby, reset once
+// clear of the well, and never onto the hole's own cell - momentum carries the ship through rather than spiralling it in.
+function applyHoleBend() {
+  const q = curQ(), hole = q.anom && q.anom.type === 'hole' ? q.anom : null, d = hole ? cheb(H.x, H.y, hole.x, hole.y) : 99;
+  if (!hole || d > 3 || d === 0) { H.holeBendN = 0; return; }
+  if (H.holeBendN >= 2) return;
+  const want = bearingDir(hole.x - H.x, hole.y - H.y); if (want === H.dir) return;
+  const nd = stepToward(H.dir, want), [ndx, ndy] = VEC[nd];
+  if (H.x + ndx === hole.x && H.y + ndy === hole.y) return;   // never bend straight onto the hole itself
+  H.dir = nd; H.holeBendN++;
+  H.holeOff.x = (hole.x - H.x) / d * .4; H.holeOff.y = (hole.y - H.y) / d * .4;   // a small cosmetic swing off centerline, eases back out in update()
+  if (H.holeBendN === 1) { say('GRAVITY WELL: YOUR COURSE IS BENDING TOWARD THE BLACK HOLE!', 'warn'); sfx.alert(); }
+}
 function heroMoveStep() {
+  applyHoleBend();
   const [dx, dy] = VEC[H.dir]; let nx = H.x + dx, ny = H.y + dy, nqx = H.qx, nqy = H.qy;
   if (nx < 0) { nx = SN - 1; nqx--; } else if (nx >= SN) { nx = 0; nqx++; }
   if (ny < 0) { ny = SN - 1; nqy--; } else if (ny >= SN) { ny = 0; nqy++; }
@@ -726,6 +756,7 @@ function update(dt) {
   const q = curQ(); scanAround();
   // energy / shields
   H.energy = Math.min(MAXE, H.energy + 3 * dt); H.flash = Math.max(0, H.flash - dt); H.regenT = Math.max(0, H.regenT - dt);
+  H.holeOff.x += (0 - H.holeOff.x) * Math.min(1, dt * 6); H.holeOff.y += (0 - H.holeOff.y) * Math.min(1, dt * 6);
   if (H.crippled > 0) { H.crippled -= dt; if (H.crippled <= 0) { H.crippled = 0; say('SYSTEMS BACK ONLINE.', 'good'); sfx.supply(); } }
   if (H.shields < 100 && H.regenT <= 0 && H.energy > 30 && !(H.crippled > 0)) { const r = 1.4 * Math.min(1, H.energy / 500) * dt; H.shields = Math.min(100, H.shields + r); H.energy -= r * 1.2; }
   // hero motion
@@ -783,7 +814,8 @@ function updateAnomaly(q, dt) {
     an.t -= dt;
     if (an.t <= 0) {
       an.t = 1.3;
-      if (cheb(H.x, H.y, an.x, an.y) <= 3 && !H.docking) { if (!U.pullMsg) { say('GRAVITY WELL! THE BLACK HOLE IS PULLING YOU IN - FLY AWAY!', 'bad'); U.pullMsg = 5; sfx.alert(); } pullToHole(H, an, true); if (U.over) return; }
+      // a ship under power gets deflected instead (see applyHoleBend in heroMoveStep) - only a stopped or docked ship gets dragged all the way in
+      if (!H.moving && cheb(H.x, H.y, an.x, an.y) <= 3 && !H.docking) { if (!U.pullMsg) { say('GRAVITY WELL! THE BLACK HOLE IS PULLING YOU IN - FLY AWAY!', 'bad'); U.pullMsg = 5; sfx.alert(); } pullToHole(H, an, true); if (U.over) return; }
       for (const a of q.aliens.slice()) if (cheb(a.x, a.y, an.x, an.y) <= 3) pullToHole(a, an, false);
     }
     if (U.pullMsg) U.pullMsg = Math.max(0, U.pullMsg - dt);
@@ -1267,7 +1299,7 @@ function drawSR(t) {
     const T = ATYPES[a.type]; if (a.hp < T.hp) { c.fillStyle = '#300'; c.fillRect(cx(a.x) - 12, cx(a.y) - 20, 24, 3); c.fillStyle = '#ff5c5c'; c.fillRect(cx(a.x) - 12, cx(a.y) - 20, 24 * a.hp / T.hp, 3); }
     if (a.charge) { c.strokeStyle = 'rgba(255,80,80,.55)'; c.lineWidth = 1; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(cx(a.x), cx(a.y)); c.lineTo(cx(a.x) + a.charge.vx * SW, cx(a.y) + a.charge.vy * SW); c.stroke(); c.setLineDash([]); }
   }
-  if (!U.dying && (!U.over || H.hull > 0)) drawHero(c, cx(H.x), cx(H.y), Math.atan2(VEC[H.dir][1], VEC[H.dir][0]), H.flash > 0);
+  if (!U.dying && (!U.over || H.hull > 0)) drawHero(c, cx(H.x + H.holeOff.x), cx(H.y + H.holeOff.y), Math.atan2(VEC[H.dir][1], VEC[H.dir][0]), H.flash > 0);
   if (H.crippled > 0) { c.fillStyle = '#ffe14d'; for (let i = 0; i < 6; i++) c.fillRect(cx(H.x) + (rnd() - .5) * 40, cx(H.y) + (rnd() - .5) * 40, 2, 2); }
   if (H.docking) {
     const s = H.docking.s; c.strokeStyle = `rgba(51,255,102,${.5 + .4 * Math.sin(t * 12)})`; c.lineWidth = 3; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(cx(s.x), cx(s.y)); c.lineTo(cx(H.x), cx(H.y)); c.stroke(); c.setLineDash([]);
@@ -1444,7 +1476,7 @@ SPACE STATIONS (1-4 in the galaxy, shown as a ring icon on the long range scanne
 
 ANOMALIES (each is hidden as ??? until you fly close):
  ION STORM - drains your shields.   WORMHOLE - random teleport.   SUPPLY DEPOT - restocks you (one use).
- BLACK HOLE - pulls ships and torpedoes in from 3 sectors away; anything reaching the middle is destroyed, aliens included. Fly away!
+ BLACK HOLE - drags in anything that sits still within 3 sectors, aliens included; a ship under power passing nearby is deflected instead of dragged in. Torpedoes bend toward it too. Anything reaching the middle is destroyed either way.
  NEBULA - sensors go blind inside it: aliens in the gas are invisible from more than 2 sectors, and you are invisible to them from more than 3.
  ASTEROID FIELD - rocks block movement and phasers. Torpedoes blast them apart.
  DERELICT SHIP - fly into it to salvage: torpedoes, mines, energy or repairs... or a booby trap, or an alien ambush.
@@ -1462,7 +1494,7 @@ const GUIDE = [
   { id: 'radiat', tag: 'volatile', desc: 'Triggers one of 7 random effects on your ship. Weapons entering it may explode, deflect or pass through.' },
   { id: 'worm', tag: 'volatile', desc: 'Teleports you to a random sector in a random quadrant. No damage.' },
   { id: 'depot', tag: 'resource', desc: 'Restocks torpedoes, mines, energy, hull and shields to full. One use.' },
-  { id: 'hole', tag: 'hazard', desc: 'Pulls ships and torpedoes in from 3 sectors away. The centre destroys anything, aliens included.' },
+  { id: 'hole', tag: 'hazard', desc: 'Drags in anything sitting still within 3 sectors, aliens included. A ship under power passing nearby gets deflected instead - flying straight into the centre is still fatal either way.' },
   { id: 'nebula', tag: 'mixed', desc: 'Hides aliens from you beyond 2 sectors, and hides you from them beyond 3.' },
   { id: 'asteroid', tag: 'hazard', desc: 'Rocks block movement and phasers. A torpedo, mine or nova shatters a piece apart.' },
   { id: 'derelict', tag: 'mixed', desc: 'Salvage supplies or repairs - or spring a booby trap, or an alien ambush.' },
