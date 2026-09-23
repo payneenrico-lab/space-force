@@ -498,10 +498,14 @@ function heroDir(d) {
 const dirName = d => ({ 7: 'NW', 8: 'N', 9: 'NE', 4: 'W', 6: 'E', 1: 'SW', 2: 'S', 3: 'SE' })[d];
 function engage(d) {
   if (H.jump) return;
-  const dist = H.dist, cost = driveCost(dist);
-  if (!energyUse(cost)) return;
+  // can't afford the full distance set on the slider? use as much of it as the energy on hand actually covers, rather
+  // than refusing to move at all - the slider itself is left alone, so the next trip still tries for the full distance.
+  let dist = H.dist;
+  while (dist > 1 && driveCost(dist) > H.energy) dist--;
+  const cost = driveCost(dist);
+  if (!energyUse(cost)) return;   // not even 1 sector is affordable
   H.dir = d; H.moving = true; H.remaining = dist; H.total = dist; H.cost = cost; H.stepT = STEP; H.px = H.x; H.py = H.y; engineOn();
-  say(`ION DRIVE ENGAGED: ${dist} SECTORS ${dirName(d)}. ENERGY -${cost}.`);
+  say(dist < H.dist ? `ION DRIVE ENGAGED: ONLY ${dist} SECTOR${dist > 1 ? 'S' : ''} AFFORDABLE (WANTED ${H.dist}) ${dirName(d)}. ENERGY -${cost}.` : `ION DRIVE ENGAGED: ${dist} SECTORS ${dirName(d)}. ENERGY -${cost}.`);
 }
 function stopShip(msg) {
   if (!H.moving) { if (msg) say('SHIP IS ALREADY STATIONARY.'); return; }
@@ -1585,7 +1589,7 @@ DIRECTIONS use the NUMPAD (or the top-row digits):
    4 W          6 E
    1 SW   2 S   3 SE
 
-ION DRIVE  set distance with + / - or the left/right arrow keys (or the slider), press I, then a direction. Longer trips cost more energy. While moving, press a direction to change course, S, 0 or 5 to stop (unused energy refunded).
+ION DRIVE  set distance with + / - or the left/right arrow keys (or the slider), press I, then a direction. Longer trips cost more energy - if you can't afford the full distance set, you still go as far as your energy covers (at least 1 sector) rather than being refused outright; the slider itself is untouched, so your next trip still tries for the full distance. While moving, press a direction to change course, S, 0 or 5 to stop (unused energy refunded).
 COLLISIONS: the computer sounds a COLLISION ALARM when a star, planet, asteroid, station, the nest or an alien ship is ahead on your course - react by stopping or changing direction. Ram a star, planet, asteroid, station or the nest and your ship is destroyed outright. Ram an alien ship instead and the impact hits BOTH ships equally hard (worse the more speed you still had left to travel, plus some randomness) - it can destroy a weak alien outright; if your own shields are already weak and you don't have enough reserve energy to hold them, the hull breach destroys your ship. Your ship explodes when destroyed, by any cause.
 PHASER (P) + direction: fast, weaker. Max 3 beams at once.
 TORPEDO (T) + direction: slow, powerful. Limited supply, max 2 in flight.
