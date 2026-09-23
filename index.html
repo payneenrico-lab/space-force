@@ -288,7 +288,7 @@ function newAlien(type, q, pos) {
 function newGame() {
   U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], remnants: [], pendingRemnants: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0 };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, px: 6, py: 6 };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
@@ -715,7 +715,11 @@ function heroMoveStep() {
     }
     return;
   }
-  if (nqx !== H.qx || nqy !== H.qy) changeQuadrant(nqx, nqy);
+  const sameQ = nqx === H.qx && nqy === H.qy;
+  if (!sameQ) changeQuadrant(nqx, nqy);
+  // glide smoothly from the old sector to the new one within a quadrant; snap straight there across a quadrant boundary,
+  // where the local sector coordinates wrap around and don't line up with the ones we just left.
+  if (sameQ) { H.px = H.x; H.py = H.y; } else { H.px = nx; H.py = ny; }
   H.x = nx; H.y = ny; H.remaining--;
   checkSector();
   if (H.remaining <= 0 && H.moving) { H.moving = false; engineOff(); say('DESTINATION REACHED.'); }
@@ -1251,8 +1255,13 @@ function drawSR(t) {
   c.save(); if (U.shake > 0) c.translate((rnd() - .5) * U.shake * 14, (rnd() - .5) * U.shake * 14);
   c.fillStyle = '#03040a'; c.fillRect(0, 0, SW, SW);
   c.fillStyle = '#fff'; for (let i = 0; i < 60; i++) { const sx = (i * 137.5 + q.hue * 7) % SW, sy = (i * 71.3 + q.hue * 3) % SW; c.globalAlpha = .25 + .3 * Math.abs(Math.sin(t + i)); c.fillRect(sx, sy, 1.2, 1.2); } c.globalAlpha = 1;
+  // the hero's rendered position eases from the sector it just left to the one it's arriving at over the course of each
+  // movement step, instead of jumping straight there - the same in-between-cell technique the black hole flyby swing uses.
+  // Only while actually moving within the same quadrant (H.px/H.py get snapped to match on a quadrant change or when stopped).
+  const stepF = H.moving ? Math.max(0, Math.min(1, 1 - H.stepT / STEP)) : 1;
+  const rhx = H.moving ? H.px + (H.x - H.px) * stepF : H.x, rhy = H.moving ? H.py + (H.y - H.py) * stepF : H.y;
   // camera follows the hero inside the 32x32 quadrant; everything below is drawn in world coordinates
-  const tcx = Math.max(0, Math.min(SN - VIEW, H.x + .5 - VIEW / 2)), tcy = Math.max(0, Math.min(SN - VIEW, H.y + .5 - VIEW / 2));
+  const tcx = Math.max(0, Math.min(SN - VIEW, rhx + .5 - VIEW / 2)), tcy = Math.max(0, Math.min(SN - VIEW, rhy + .5 - VIEW / 2));
   if (!U.cam) U.cam = { x: tcx, y: tcy }; const cam = U.cam; cam.x += (tcx - cam.x) * .2; cam.y += (tcy - cam.y) * .2;
   c.save(); c.translate(-cam.x * CELL, -cam.y * CELL);
   // the quadrant's ambient colour tint: anchored to a fixed SPOT IN SPACE (not the screen), so it's a real feature of the
@@ -1299,7 +1308,7 @@ function drawSR(t) {
     const T = ATYPES[a.type]; if (a.hp < T.hp) { c.fillStyle = '#300'; c.fillRect(cx(a.x) - 12, cx(a.y) - 20, 24, 3); c.fillStyle = '#ff5c5c'; c.fillRect(cx(a.x) - 12, cx(a.y) - 20, 24 * a.hp / T.hp, 3); }
     if (a.charge) { c.strokeStyle = 'rgba(255,80,80,.55)'; c.lineWidth = 1; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(cx(a.x), cx(a.y)); c.lineTo(cx(a.x) + a.charge.vx * SW, cx(a.y) + a.charge.vy * SW); c.stroke(); c.setLineDash([]); }
   }
-  if (!U.dying && (!U.over || H.hull > 0)) drawHero(c, cx(H.x + H.holeOff.x), cx(H.y + H.holeOff.y), Math.atan2(VEC[H.dir][1], VEC[H.dir][0]), H.flash > 0);
+  if (!U.dying && (!U.over || H.hull > 0)) drawHero(c, cx(rhx + H.holeOff.x), cx(rhy + H.holeOff.y), Math.atan2(VEC[H.dir][1], VEC[H.dir][0]), H.flash > 0);
   if (H.crippled > 0) { c.fillStyle = '#ffe14d'; for (let i = 0; i < 6; i++) c.fillRect(cx(H.x) + (rnd() - .5) * 40, cx(H.y) + (rnd() - .5) * 40, 2, 2); }
   if (H.docking) {
     const s = H.docking.s; c.strokeStyle = `rgba(51,255,102,${.5 + .4 * Math.sin(t * 12)})`; c.lineWidth = 3; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(cx(s.x), cx(s.y)); c.lineTo(cx(H.x), cx(H.y)); c.stroke(); c.setLineDash([]);
