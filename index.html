@@ -496,7 +496,7 @@ function engage(d) {
   if (H.jump) return;
   const dist = H.dist, cost = driveCost(dist);
   if (!energyUse(cost)) return;
-  H.dir = d; H.moving = true; H.remaining = dist; H.total = dist; H.cost = cost; H.stepT = STEP; engineOn();
+  H.dir = d; H.moving = true; H.remaining = dist; H.total = dist; H.cost = cost; H.stepT = STEP; H.px = H.x; H.py = H.y; engineOn();
   say(`ION DRIVE ENGAGED: ${dist} SECTORS ${dirName(d)}. ENERGY -${cost}.`);
 }
 function stopShip(msg) {
