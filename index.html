@@ -682,17 +682,21 @@ function stepToward(cur, target) {   // rotates cur one 45-degree step toward ta
   return fwd <= back ? DIR_RING[(ci + 1) % 8] : DIR_RING[(ci + 7) % 8];
 }
 // A black hole bends a moving ship's course toward it instead of dragging it in outright (that only happens to a ship that
-// stops nearby - see the hole branch of updateAnomaly). Up to 2 nudges of one 45-degree heading step per flyby, reset once
-// clear of the well, and never onto the hole's own cell - momentum carries the ship through rather than spiralling it in.
+// stops nearby - see the hole branch of updateAnomaly). Only nudges the heading while still 2-3 sectors out; right alongside
+// it (distance 1) there's no room left to safely correct, so the heading is left exactly as it is from there on. The swing
+// is also never allowed to complete a dead-on lock onto the hole's exact bearing (every neighbouring cell sits exactly along
+// one of the 8 compass directions, so reaching distance 1 already aimed at it would otherwise fly the ship straight in on
+// the very heading this bend put it on) - it stops one step short instead. A heading the player already had before entering
+// the well can still carry them straight into the hole; that's on them, not the gravity well (rule: still fatal either way).
 function applyHoleBend() {
   const q = curQ(), hole = q.anom && q.anom.type === 'hole' ? q.anom : null, d = hole ? cheb(H.x, H.y, hole.x, hole.y) : 99;
-  if (!hole || d > 3 || d === 0) { H.holeBendN = 0; return; }
-  if (H.holeBendN >= 2) return;
-  const want = bearingDir(hole.x - H.x, hole.y - H.y); if (want === H.dir) return;
-  const nd = stepToward(H.dir, want), [ndx, ndy] = VEC[nd];
-  if (H.x + ndx === hole.x && H.y + ndy === hole.y) return;   // never bend straight onto the hole itself
+  if (!hole || d > 3) { H.holeBendN = 0; return; }
+  if (d < 2 || H.holeBendN >= 2) return;
+  const dx0 = hole.x - H.x, dy0 = hole.y - H.y, want = bearingDir(dx0, dy0); if (want === H.dir) return;
+  const nd = stepToward(H.dir, want);
+  if (nd === want && (dx0 === 0 || dy0 === 0 || Math.abs(dx0) === Math.abs(dy0))) return;   // that step would lock dead onto the hole - stop short
   H.dir = nd; H.holeBendN++;
-  H.holeOff.x = (hole.x - H.x) / d * .4; H.holeOff.y = (hole.y - H.y) / d * .4;   // a small cosmetic swing off centerline, eases back out in update()
+  H.holeOff.x = dx0 / d * .4; H.holeOff.y = dy0 / d * .4;   // a small cosmetic swing off centerline, eases back out in update()
   if (H.holeBendN === 1) { say('GRAVITY WELL: YOUR COURSE IS BENDING TOWARD THE BLACK HOLE!', 'warn'); sfx.alert(); }
 }
 function heroMoveStep() {
