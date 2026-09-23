@@ -288,7 +288,7 @@ function newAlien(type, q, pos) {
 function newGame() {
   U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], remnants: [], pendingRemnants: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, px: 6, py: 6 };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeBoost: 0, px: 6, py: 6 };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
@@ -684,7 +684,10 @@ function holeCross(x, y, dir, hole) { const [vx, vy] = VEC[dir]; return vx * (ho
 // points dead at it; a straight (non-dead-on) heading can never actually reach the hole's exact cell no matter how close
 // it grazes, so this is enough to guarantee safety without needing to chase the "right" amount of correction. A heading
 // that was ALREADY aimed dead-on the moment it entered the well is left untouched instead of kinked - that's the player's
-// own doing from outside the well, and still carries them straight in if they hold that course.
+// own doing from outside the well, and still carries them straight in if they hold that course. The kink also delivers a
+// real slingshot payoff, same as a spacecraft using a planet's gravity for a boost: briefly faster (H.holeBoost speeds up
+// the Ion Drive's step timer), and carried a few sectors further than originally commanded (H.remaining/H.total both bumped
+// up) - free reach and speed the player didn't pay energy for.
 function applyHoleBend() {
   const q = curQ(), hole = q.anom && q.anom.type === 'hole' ? q.anom : null, d = hole ? cheb(H.x, H.y, hole.x, hole.y) : 99;
   if (!hole || d > 3) { H.holeBendN = 0; H.holeSpin = 0; H.holeLockout = false; return; }
@@ -702,7 +705,8 @@ function applyHoleBend() {
   if (H.x + ndx === hole.x && H.y + ndy === hole.y) return;   // would land right on the hole - hold off a tick and try again
   if (holeCross(H.x, H.y, nd, hole) === 0) return;   // would put the ship on a fresh collision course - stay on the current (already-safe) heading instead
   H.dir = nd; H.holeBendN = 1;
-  say('GRAVITY WELL: YOUR COURSE IS BENDING TOWARD THE BLACK HOLE!', 'warn'); sfx.alert();
+  H.holeBoost = 2.5; H.remaining += 4; H.total += 4;   // a real slingshot: briefly faster, and carried a little further, for free
+  say('GRAVITY WELL: THE SLINGSHOT EFFECT FLINGS YOU ONWARD, FASTER AND FARTHER!', 'good'); sfx.alert();
 }
 function heroMoveStep() {
   applyHoleBend();
@@ -770,11 +774,12 @@ function update(dt) {
   // energy / shields
   H.energy = Math.min(MAXE, H.energy + 3 * dt); H.flash = Math.max(0, H.flash - dt); H.regenT = Math.max(0, H.regenT - dt);
   H.holeOff.x += (0 - H.holeOff.x) * Math.min(1, dt * 6); H.holeOff.y += (0 - H.holeOff.y) * Math.min(1, dt * 6);
+  H.holeBoost = Math.max(0, H.holeBoost - dt);
   if (H.crippled > 0) { H.crippled -= dt; if (H.crippled <= 0) { H.crippled = 0; say('SYSTEMS BACK ONLINE.', 'good'); sfx.supply(); } }
   if (H.shields < 100 && H.regenT <= 0 && H.energy > 30 && !(H.crippled > 0)) { const r = 1.4 * Math.min(1, H.energy / 500) * dt; H.shields = Math.min(100, H.shields + r); H.energy -= r * 1.2; }
   // hero motion
   scanCollisionAhead(dt);
-  if (H.moving) { H.stepT -= dt * tsAt(H.x, H.y); while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); if (U.dying) return; } }
+  if (H.moving) { H.stepT -= dt * tsAt(H.x, H.y) * (H.holeBoost > 0 ? 1.6 : 1); while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); if (U.dying) return; } }
   if (H.jump && (H.jump.t -= dt) <= 0) finishJump();
   if (H.docking && !H.docking.done && (H.docking.t -= dt) <= 0) finishDock();
   if (U.sd) {
@@ -1494,7 +1499,7 @@ SPACE STATIONS (1-4 in the galaxy, shown as a ring icon on the long range scanne
 
 ANOMALIES (each is hidden as ??? until you fly close):
  ION STORM - drains your shields.   WORMHOLE - random teleport.   SUPPLY DEPOT - restocks you (one use).
- BLACK HOLE - drags in anything that sits still within 3 sectors, aliens included; a ship under power passing nearby is deflected instead of dragged in. Torpedoes bend toward it too. Anything reaching the middle is destroyed either way.
+ BLACK HOLE - drags in anything that sits still within 3 sectors, aliens included; a ship under power passing nearby is deflected instead of dragged in, and gets a free slingshot out of it - briefly faster, and carried a few sectors further than commanded, at no extra energy cost. Torpedoes bend toward it too. Anything reaching the middle is destroyed either way.
  NEBULA - sensors go blind inside it: aliens in the gas are invisible from more than 2 sectors, and you are invisible to them from more than 3.
  ASTEROID FIELD - rocks block movement and phasers. Torpedoes blast them apart.
  DERELICT SHIP - fly into it to salvage: torpedoes, mines, energy or repairs... or a booby trap, or an alien ambush.
@@ -1512,7 +1517,7 @@ const GUIDE = [
   { id: 'radiat', tag: 'volatile', desc: 'Triggers one of 7 random effects on your ship. Weapons entering it may explode, deflect or pass through.' },
   { id: 'worm', tag: 'volatile', desc: 'Teleports you to a random sector in a random quadrant. No damage.' },
   { id: 'depot', tag: 'resource', desc: 'Restores +4 torpedoes, +3 mines, +800 energy and +30 hull (each capped at your max), and tops shields up to 100%, instantly on contact. One use.' },
-  { id: 'hole', tag: 'hazard', desc: 'Drags in anything sitting still within 3 sectors, aliens included. A ship under power passing nearby gets deflected instead - flying straight into the centre is still fatal either way.' },
+  { id: 'hole', tag: 'hazard', desc: 'Drags in anything sitting still within 3 sectors, aliens included. A ship under power passing nearby gets deflected instead - and slingshots away briefly faster and a few sectors further, free of charge. Flying straight into the centre is still fatal either way.' },
   { id: 'nebula', tag: 'mixed', desc: 'Hides aliens from you beyond 2 sectors, and hides you from them beyond 3.' },
   { id: 'asteroid', tag: 'hazard', desc: 'Rocks block movement and phasers. A torpedo, mine or nova shatters a piece apart.' },
   { id: 'derelict', tag: 'mixed', desc: 'Salvage supplies or repairs - or spring a booby trap, or an alien ambush.' },
