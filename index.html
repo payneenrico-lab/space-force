@@ -668,40 +668,41 @@ const COLL_LABEL = { star: 'A STAR', planet: 'A PLANET', rock: 'AN ASTEROID', st
 function collisionDamage() { return 15 + H.remaining * 3 + ri(25); }
 // The 8 compass headings in on-screen rotational order, so a heading can be walked one 45-degree step at a time around the ring.
 const DIR_RING = [6, 3, 2, 1, 4, 7, 8, 9];
-// Looks up to `look` sectors ahead along (x,y,dir) and returns the closest that ray ever comes to the hole - used to tell
-// whether the ship's CURRENT heading is already a safe passing distance away, or is still on course for a dangerously
-// close (or dead-on) pass and needs correcting.
-function minApproachDist(x, y, dir, hole, look) {
-  const [vx, vy] = VEC[dir]; let best = cheb(x, y, hole.x, hole.y);
-  for (let i = 1; i <= look; i++) { const dd = cheb(x + vx * i, y + vy * i, hole.x, hole.y); if (dd < best) best = dd; }
-  return best;
-}
+// The signed "which side" of a ray from (x,y) heading dir the hole sits on - zero exactly when the hole lies dead ahead
+// on that ray (so continuing straight would eventually reach it), since that's invariant for as long as the heading
+// doesn't change (moving further along the same ray never alters which side of it a fixed point sits on).
+function holeCross(x, y, dir, hole) { const [vx, vy] = VEC[dir]; return vx * (hole.y - y) - vy * (hole.x - x); }
 // A black hole bends a moving ship's course into a gravity-assist swing instead of dragging it in outright (that only
-// happens to a ship that stops nearby - see the hole branch of updateAnomaly). The rotational sense (clockwise or counter-
-// clockwise) is locked in once, the instant the ship enters the well, from which side of its heading the hole sits on -
-// every correction from then on nudges the heading one more 45-degree step the SAME way. That's what makes the ship curve
-// in close on one side and swing on round to exit the FAR side, rather than aiming closer to the hole's centre and stopping
-// once "aimed enough" (which only ever pulls the ship in on the near side and back out the way it came - a near-miss, not
-// a slingshot). Correction only happens while the CURRENT heading is still on course to pass within 1 sector of the hole
-// (or hit it outright) - a heading that's already clearing it safely is left alone, so a wide miss sails past dead straight
-// and only a close graze actually gets swung. Two exceptions: a step is skipped (not the correction abandoned) on the one
-// tick it would land right on the hole's own cell; and a heading that was ALREADY aimed dead-on the moment it entered the
-// well is never corrected at all - that's the player's own doing from outside the well, and stays fatal if it reaches it.
+// happens to a ship that stops nearby - see the hole branch of updateAnomaly). A single 45-degree kink, not a repeated
+// correction: the rotational sense is decided once, the instant the ship enters the well, from which side of its heading
+// the hole sits on - but the kink itself is held off until the ship actually draws alongside (its closest approach along
+// the still-straight path), not applied the moment it merely enters the well's outer radius while still well out in front
+// of the hole. Only one kink, not a repeated correction that aims closer and closer at the hole's centre until "safe
+// enough" (which can rotate the heading a long way round, killing all forward progress - it ends up looking like the ship
+// got shoved straight away from the hole, not curved past it). The kink is skipped - not abandoned, just held off for a
+// tick - only in the rare case it would itself land right on the hole's cell, or put the ship on a fresh heading that
+// points dead at it; a straight (non-dead-on) heading can never actually reach the hole's exact cell no matter how close
+// it grazes, so this is enough to guarantee safety without needing to chase the "right" amount of correction. A heading
+// that was ALREADY aimed dead-on the moment it entered the well is left untouched instead of kinked - that's the player's
+// own doing from outside the well, and still carries them straight in if they hold that course.
 function applyHoleBend() {
   const q = curQ(), hole = q.anom && q.anom.type === 'hole' ? q.anom : null, d = hole ? cheb(H.x, H.y, hole.x, hole.y) : 99;
   if (!hole || d > 3) { H.holeBendN = 0; H.holeSpin = 0; H.holeLockout = false; return; }
   const dx0 = hole.x - H.x, dy0 = hole.y - H.y;
   H.holeOff.x = dx0 / d * .25; H.holeOff.y = dy0 / d * .25;   // a small cosmetic tug while in range, eases back out in update()
   if (H.holeSpin === 0 && !H.holeLockout) {
-    const [vx, vy] = VEC[H.dir], cross = vx * dy0 - vy * dx0;   // which side of the ship's heading the hole sits on
+    const cross = holeCross(H.x, H.y, H.dir, hole);
     if (cross === 0) { H.holeLockout = true; return; }   // aimed dead at it already - not the well's doing, hands off
     H.holeSpin = cross > 0 ? 1 : -1;
   }
-  if (H.holeLockout || H.holeBendN >= 6 || minApproachDist(H.x, H.y, H.dir, hole, 6) > 1) return;
+  if (H.holeLockout || H.holeBendN >= 1) return;   // exactly one kink per flyby
+  const [vx, vy] = VEC[H.dir];
+  if (cheb(H.x + vx, H.y + vy, hole.x, hole.y) < d) return;   // still closing in on the straight path - not alongside yet, wait
   const idx = DIR_RING.indexOf(H.dir), nd = DIR_RING[(idx + H.holeSpin + 8) % 8], [ndx, ndy] = VEC[nd];
-  if (H.x + ndx === hole.x && H.y + ndy === hole.y) return;   // this step would land right on the hole - skip it, try again next tick
-  H.dir = nd; H.holeBendN++;
-  if (H.holeBendN === 1) { say('GRAVITY WELL: YOUR COURSE IS BENDING TOWARD THE BLACK HOLE!', 'warn'); sfx.alert(); }
+  if (H.x + ndx === hole.x && H.y + ndy === hole.y) return;   // would land right on the hole - hold off a tick and try again
+  if (holeCross(H.x, H.y, nd, hole) === 0) return;   // would put the ship on a fresh collision course - stay on the current (already-safe) heading instead
+  H.dir = nd; H.holeBendN = 1;
+  say('GRAVITY WELL: YOUR COURSE IS BENDING TOWARD THE BLACK HOLE!', 'warn'); sfx.alert();
 }
 function heroMoveStep() {
   applyHoleBend();
