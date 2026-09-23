@@ -288,7 +288,7 @@ function newAlien(type, q, pos) {
 function newGame() {
   U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], remnants: [], pendingRemnants: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeBoost: 0, holeExited: false, holePeak: 0, holeExitRemain: 1, px: 6, py: 6 };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeAlong: false, holeCap: 1, holeBoost: 0, holeExited: false, holePeak: 0, holeExitRemain: 1, px: 6, py: 6 };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
@@ -684,14 +684,17 @@ function holeCross(x, y, dir, hole) { const [vx, vy] = VEC[dir]; return vx * (ho
 // points dead at it; a straight (non-dead-on) heading can never actually reach the hole's exact cell no matter how close
 // it grazes, so this is enough to guarantee safety without needing to chase the "right" amount of correction. A heading
 // that was ALREADY aimed dead-on the moment it entered the well is left untouched instead of kinked - that's the player's
-// own doing from outside the well, and still carries them straight in if they hold that course. See updateHoleBoost() below
-// for the slingshot speed and free-distance payoff, which runs on its own schedule tied to the field itself rather than to
-// this one-off kink.
+// own doing from outside the well, and still carries them straight in if they hold that course.
+// The effect scales with how close the pass actually is - the field only has room for the discrete 45-degree headings this
+// game moves on, so "weaker at a distance" means the widest pass the well allows (grazing the full 3 sectors out) doesn't
+// redirect the heading at all, just eases past with the (already proximity-scaled) cosmetic tug and a small speed nudge;
+// only a genuinely close pass (2 sectors or nearer) earns the actual course kink. H.holeCap - also read by updateHoleBoost -
+// carries that same closeness into the slingshot's speed payoff, so a wide, gentle graze gives a wide, gentle boost too.
 function applyHoleBend() {
   const q = curQ(), hole = q.anom && q.anom.type === 'hole' ? q.anom : null, d = hole ? cheb(H.x, H.y, hole.x, hole.y) : 99;
-  if (!hole || d > 3) { H.holeBendN = 0; H.holeSpin = 0; H.holeLockout = false; return; }
-  const dx0 = hole.x - H.x, dy0 = hole.y - H.y;
-  H.holeOff.x = dx0 / d * .25; H.holeOff.y = dy0 / d * .25;   // a small cosmetic tug while in range, eases back out in update()
+  if (!hole || d > 3) { H.holeBendN = 0; H.holeSpin = 0; H.holeLockout = false; H.holeAlong = false; H.holeCap = 1; return; }
+  const dx0 = hole.x - H.x, dy0 = hole.y - H.y, tug = (4 - d) / 3;   // how close: 1 right alongside, down to 1/3 at the outer edge
+  H.holeOff.x = dx0 / d * .25 * tug; H.holeOff.y = dy0 / d * .25 * tug;   // a small cosmetic tug while in range, eases back out in update()
   if (H.holeSpin === 0 && !H.holeLockout) {
     const cross = holeCross(H.x, H.y, H.dir, hole);
     if (cross === 0) { H.holeLockout = true; return; }   // aimed dead at it already - not the well's doing, hands off
@@ -699,10 +702,15 @@ function applyHoleBend() {
   }
   if (H.holeLockout || H.holeBendN >= 1) return;   // exactly one kink per flyby
   const [vx, vy] = VEC[H.dir];
-  if (cheb(H.x + vx, H.y + vy, hole.x, hole.y) < d) return;   // still closing in on the straight path - not alongside yet, wait
+  if (!H.holeAlong) {
+    if (cheb(H.x + vx, H.y + vy, hole.x, hole.y) < d) return;   // still closing in on the straight path - not alongside yet, wait
+    H.holeAlong = true;
+    H.holeCap = Math.min(1, Math.max(.25, (4 - d) / 3));   // freeze the reading at the TRUE closest approach - a farther one gets a weaker slingshot all round
+    if (d >= 3) { H.holeBendN = 1; return; }   // too wide a miss for the field to actually redirect the heading - no kink, just the weaker tug and boost above
+  }
   const idx = DIR_RING.indexOf(H.dir), nd = DIR_RING[(idx + H.holeSpin + 8) % 8], [ndx, ndy] = VEC[nd];
   if (H.x + ndx === hole.x && H.y + ndy === hole.y) return;   // would land right on the hole - hold off a tick and try again
-  if (holeCross(H.x, H.y, nd, hole) === 0) return;   // would put the ship on a fresh collision course - stay on the current (already-safe) heading instead
+  if (holeCross(H.x, H.y, nd, hole) === 0) return;   // would put the ship on a fresh collision course - hold off and try again
   H.dir = nd; H.holeBendN = 1;
   say('GRAVITY WELL: YOUR COURSE IS BENDING TOWARD THE BLACK HOLE!', 'warn'); sfx.alert();
 }
@@ -711,25 +719,29 @@ function applyHoleBend() {
 // back down over the rest of the journey - the fraction remaining tracks the fraction of that post-exit distance still to
 // go, so it tapers all the way to zero exactly as the ship completes its trip, never abruptly. H.holeBoost is the current
 // boost as a 0..1 fraction of the peak (0 = normal speed, 1 = full slingshot speed); heroMoveStep's caller turns that into
-// an actual speed multiplier. The same pass that gets the speed boost also gets a few sectors of free extra range, granted
-// the instant it leaves the field (added to both remaining and total, so the trip simply runs a little longer than planned
-// at no extra energy cost) - a ship whose heading is aimed dead at the hole gets neither; it isn't really using the field,
-// it's flying into it. That's checked directly here (rather than trusting applyHoleBend's own holeLockout flag, which is
-// only set once heroMoveStep happens to run - up to a fifth of a second after this runs each frame, letting a sliver of
-// boost leak through in the meantime) so a dead-on approach can never pick up so much as a fraction of a free boost.
+// an actual speed multiplier. It ramps toward H.holeCap rather than always toward a full 1 - applyHoleBend sets that once
+// the closest approach is known, so a wide, gentle graze tops out at a gentle boost while a close one reaches the full
+// effect, same scaling as the course kink itself. The same pass also gets a few sectors of free extra range (scaled the
+// same way), granted the instant it leaves the field (added to both remaining and total, so the trip simply runs a little
+// longer than planned at no extra energy cost) - a ship whose heading is aimed dead at the hole gets neither; it isn't
+// really using the field, it's flying into it. That's checked directly here (rather than trusting applyHoleBend's own
+// holeLockout flag, which is only set once heroMoveStep happens to run - up to a fifth of a second after this runs each
+// frame, letting a sliver of boost leak through in the meantime) so a dead-on approach can never pick up so much as a
+// fraction of a free boost.
 function updateHoleBoost(dt) {
   const q = curQ(), hole = q.anom && q.anom.type === 'hole' ? q.anom : null;
   const d = hole ? cheb(H.x, H.y, hole.x, hole.y) : 99;
   const deadOn = hole && H.moving && holeCross(H.x, H.y, H.dir, hole) === 0;
   if (hole && d <= 3 && H.moving && !deadOn) {
-    H.holeBoost = Math.min(1, H.holeBoost + dt / 1.2);   // ramps up over ~1.2s spent inside the field
+    H.holeBoost = Math.min(H.holeCap, H.holeBoost + dt / 1.2);   // ramps up over ~1.2s spent inside the field
     H.holeExited = false;
   } else if (!H.moving || H.remaining <= 0) {
     H.holeBoost = 0; H.holeExited = false;   // the trip's over - reset cleanly, ready for next time
   } else if (H.holeBoost > 0) {
     if (!H.holeExited) {   // this is the tick it actually left the field - lock in the peak, hand out the free range, and
       H.holeExited = true; H.holePeak = H.holeBoost;   // measure the decay against the WHOLE remaining trip, bonus included
-      H.remaining += 4; H.total += 4;
+      const bonus = Math.max(1, Math.round(4 * H.holeCap));
+      H.remaining += bonus; H.total += bonus;
       H.holeExitRemain = Math.max(1, H.remaining);
       say('SLINGSHOT: THE BLACK HOLE FLINGS YOU ONWARD, FASTER AND FARTHER!', 'good'); sfx.alert();
     }
@@ -1527,7 +1539,7 @@ SPACE STATIONS (1-4 in the galaxy, shown as a ring icon on the long range scanne
 
 ANOMALIES (each is hidden as ??? until you fly close):
  ION STORM - drains your shields.   WORMHOLE - random teleport.   SUPPLY DEPOT - restocks you (one use).
- BLACK HOLE - drags in anything that sits still within 3 sectors, aliens included; a ship under power passing nearby is deflected instead of dragged in. Speed builds up smoothly the whole time it's inside the field and peaks the moment it leaves, then eases back down to normal over the rest of the trip - and it's carried a few sectors further than commanded, at no extra energy cost. Torpedoes bend toward it too. Anything reaching the middle is destroyed either way.
+ BLACK HOLE - drags in anything that sits still within 3 sectors, aliens included; a ship under power passing nearby is deflected instead of dragged in - the closer the pass, the stronger the effect: within 2 sectors it visibly bends your course, while a wide 3-sector graze barely nudges it. Speed builds up smoothly the whole time it's inside the field and peaks the moment it leaves, then eases back down to normal over the rest of the trip - and it's carried a few sectors further than commanded, at no extra energy cost, again scaled to how close the pass was. Torpedoes bend toward it too. Anything reaching the middle is destroyed either way.
  NEBULA - sensors go blind inside it: aliens in the gas are invisible from more than 2 sectors, and you are invisible to them from more than 3.
  ASTEROID FIELD - rocks block movement and phasers. Torpedoes blast them apart.
  DERELICT SHIP - fly into it to salvage: torpedoes, mines, energy or repairs... or a booby trap, or an alien ambush.
@@ -1545,7 +1557,7 @@ const GUIDE = [
   { id: 'radiat', tag: 'volatile', desc: 'Triggers one of 7 random effects on your ship. Weapons entering it may explode, deflect or pass through.' },
   { id: 'worm', tag: 'volatile', desc: 'Teleports you to a random sector in a random quadrant. No damage.' },
   { id: 'depot', tag: 'resource', desc: 'Restores +4 torpedoes, +3 mines, +800 energy and +30 hull (each capped at your max), and tops shields up to 100%, instantly on contact. One use.' },
-  { id: 'hole', tag: 'hazard', desc: 'Drags in anything sitting still within 3 sectors, aliens included. A ship under power passing nearby gets deflected instead - speed builds up while inside the field, peaks the instant it leaves, then eases back to normal over the rest of the trip, a few sectors further than commanded, free of charge. Flying straight into the centre is still fatal either way.' },
+  { id: 'hole', tag: 'hazard', desc: 'Drags in anything sitting still within 3 sectors, aliens included. A ship under power passing nearby gets deflected instead, more sharply the closer the pass - a wide 3-sector graze barely curves at all. Speed builds up while inside the field, peaks the instant it leaves, then eases back to normal over the rest of the trip, a few sectors further than commanded and free of charge, both scaled the same way. Flying straight into the centre is still fatal either way.' },
   { id: 'nebula', tag: 'mixed', desc: 'Hides aliens from you beyond 2 sectors, and hides you from them beyond 3.' },
   { id: 'asteroid', tag: 'hazard', desc: 'Rocks block movement and phasers. A torpedo, mine or nova shatters a piece apart.' },
   { id: 'derelict', tag: 'mixed', desc: 'Salvage supplies or repairs - or spring a booby trap, or an alien ambush.' },
