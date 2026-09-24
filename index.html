@@ -871,12 +871,17 @@ function update(dt) {
   U.t += dt; U.grace = Math.max(0, U.grace - dt);
   if (U.pending && (U.pending.t -= dt) <= 0) U.pending = null;
   const q = curQ(); scanAround();
-  // energy / shields
-  H.energy = Math.min(MAXE, H.energy + 3 * dt); H.flash = Math.max(0, H.flash - dt); H.regenT = Math.max(0, H.regenT - dt);
+  // energy / shields - both replenish at the local flow of time, same as everything else caught in a time distortion
+  // field: slower inside a SLOW zone, faster inside a FAST one, unaffected everywhere else (tsAt returns 1).
+  const ts = tsAt(H.x, H.y);
+  H.energy = Math.min(MAXE, H.energy + 3 * dt * ts); H.flash = Math.max(0, H.flash - dt); H.regenT = Math.max(0, H.regenT - dt);
   H.holeOff.x += (0 - H.holeOff.x) * Math.min(1, dt * 6); H.holeOff.y += (0 - H.holeOff.y) * Math.min(1, dt * 6);
   updateHoleBoost(dt);
   if (H.crippled > 0) { H.crippled -= dt; if (H.crippled <= 0) { H.crippled = 0; say('SYSTEMS BACK ONLINE.', 'good'); sfx.supply(); } }
-  if (H.shields < 100 && H.regenT <= 0 && H.energy > 30 && !(H.crippled > 0)) { const r = 1.4 * Math.min(1, H.energy / 500) * dt; H.shields = Math.min(100, H.shields + r); H.energy -= r * 1.2; }
+  if (H.shields < 100 && H.regenT <= 0 && !(H.crippled > 0)) {
+    const r = 1.4 * Math.min(1, H.energy / 500) * dt * ts, cost = r * 1.2;
+    if (H.energy - cost >= 10) { H.shields = Math.min(100, H.shields + r); H.energy -= cost; }   // keep at least a 10-energy reserve - never regen shields down to empty
+  }
   // hero motion
   scanCollisionAhead(dt);
   if (H.moving) { H.stepT -= dt * tsAt(H.x, H.y) * (1 + H.holeBoost * .6); while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); if (U.dying) return; } }
@@ -1616,7 +1621,7 @@ ANOMALIES (each is hidden as ??? until you fly close):
  NEBULA - sensors go blind inside it: aliens in the gas are invisible from more than 2 sectors, and you are invisible to them from more than 3.
  ASTEROID FIELD - rocks block movement and phasers. Torpedoes blast them apart.
  DERELICT SHIP - fly into it to salvage: torpedoes, mines, energy or repairs... or a booby trap, or an alien ambush.
- TIME DISTORTION - inside the field everything, including you, runs slow or fast, and it flips every few seconds.
+ TIME DISTORTION - inside the field everything, including you, runs slow or fast, and it flips every few seconds. Your energy and shield regeneration follow the same local time, so both trickle in slower in a SLOW field and quicker in a FAST one. Shields will never regenerate at the cost of dropping your energy below 10.
  MINEFIELD - a patch of hidden mines that only show up when you are within 3 sectors.
  ALIEN NEST - a hive that keeps spawning new alien ships until you destroy it (phasers and torpedoes hurt it).
 RADIATION CLOUD: flying into one triggers ONE random effect - a scrambled hyperjump to a random sector or quadrant, an energy drain, a shield drain, an energy surge, fully restored shields, the ship is CRIPPLED for up to 12 seconds (no drive, weapons or shields - enemy hits go straight to the hull), or nothing happens at all. Torpedoes entering a cloud either explode (hurting anything adjacent), are deflected in a random direction, or fly straight on; phaser beams either fizzle out, scatter in a random direction, or carry on unaffected. A deflected or scattered weapon can hit anything in its new path - including the ship that fired it!`;
