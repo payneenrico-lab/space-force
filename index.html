@@ -291,7 +291,7 @@ function newAlien(type, q, pos) {
 function newGame() {
   U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], remnants: [], pendingRemnants: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeAlong: false, holeCap: 1, holeBoost: 0, holeExited: false, holePeak: 0, holeExitRemain: 1, px: 6, py: 6 };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, torpsMax: 10, minesMax: 6, hullArmor: 1, shieldArmor: 1, energyRegenRate: 3, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeAlong: false, holeCap: 1, holeBoost: 0, holeExited: false, holePeak: 0, holeExitRemain: 1, px: 6, py: 6 };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
@@ -319,6 +319,12 @@ function newGame() {
   const nStations = 1 + ri(4);   // 1-4 space stations scattered through the galaxy
   for (let i = 0; i < nStations; i++) { const q = Q(ri(GN), ri(GN)), p = freeCell(q); q.stations.push({ x: p.x, y: p.y, readyAt: 0, shield: STATION_SHIELD, regenT: 0, cd: 2, flash: 0, warned: false }); }
   U.stationCount = nStations;
+  // the shipyard: a 5th, one-of-a-kind station that also hands out a permanent upgrade on top of the usual repair - see
+  // tryShipyardUpgrade(). Destructible by aliens exactly like any other station (find it, defend it, or lose the chance).
+  { const syQx = ri(GN), syQy = ri(GN), syQ = Q(syQx, syQy), syP = freeCell(syQ);
+    const shipyard = { x: syP.x, y: syP.y, qx: syQx, qy: syQy, readyAt: 0, shield: STATION_SHIELD, regenT: 0, cd: 2, flash: 0, warned: false,
+                        shipyard: true, pool: ['hull', 'shields', 'torps', 'mines', 'reactor', 'scanner'], cdRemain: 0 };
+    syQ.stations.push(shipyard); U.shipyard = shipyard; }
   const hp = freeCell(curQ()); H.x = hp.x; H.y = hp.y; curQ().visited = true;
   const total = 16 + ri(13), pool = ['scout', 'scout', 'scout', 'raider', 'raider', 'cruiser', 'cruiser', 'cruiser', 'stealth', 'stealth', 'battleship'];
   for (let i = 0; i < total; i++) {
@@ -386,8 +392,11 @@ function hitHero(d) {
   if (U.over || U.dying) return;
   if (H.docking) { hitStation(H.docking.s, d); return; }   // a docked ship is protected: the station's shields take the hit
   const s = H.shields;
-  if (H.crippled > 0) H.hull -= d * 1.5;   // shields are offline while crippled: hits go straight to the hull, and hurt more
-  else if (s >= d) H.shields -= d; else { H.hull -= d - s; H.shields = 0; }
+  if (H.crippled > 0) { H.hull -= d * 1.5 * H.hullArmor; }
+  else {
+    const sd = d * H.shieldArmor;
+    if (s >= sd) H.shields -= sd; else { H.hull -= (sd - s) * H.hullArmor; H.shields = 0; }
+  }
   H.flash = .4; H.regenT = 3; U.shake = .25; sfx.hit();
   if (H.shields < 25 && s >= 25) say('WARNING: SHIELDS CRITICAL!', 'bad');
   if (H.hull <= 0) explodeHero('YOUR SHIP HAS BEEN DESTROYED.');
@@ -715,7 +724,7 @@ function checkSector() {
   else if (an.type === 'radiat') radiationEffect();
   else if (an.type === 'worm') { say('WORMHOLE! YOU ARE BEING TORN THROUGH SPACE...', 'warn'); stopShip(null); H.jump = { t: .6, worm: true, qx: ri(GN), qy: ri(GN) }; sfx.jumpUp(); }
   else if (an.type === 'depot') {
-    H.torps = Math.min(10, H.torps + 4); H.mines = Math.min(6, H.mines + 3); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
+    H.torps = Math.min(H.torpsMax, H.torps + 4); H.mines = Math.min(H.minesMax, H.mines + 3); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
     q.anom = null; sfx.supply(); say('SUPPLY DEPOT: TORPEDOES, MINES, ENERGY, HULL AND SHIELDS RESTORED!', 'good');
   }
   else if (an.type === 'hole') explodeHero('YOUR SHIP WAS CRUSHED BY THE BLACK HOLE.');
@@ -874,7 +883,7 @@ function update(dt) {
   // energy / shields - both replenish at the local flow of time, same as everything else caught in a time distortion
   // field: slower inside a SLOW zone, faster inside a FAST one, unaffected everywhere else (tsAt returns 1).
   const ts = tsAt(H.x, H.y);
-  H.energy = Math.min(MAXE, H.energy + 3 * dt * ts); H.flash = Math.max(0, H.flash - dt); H.regenT = Math.max(0, H.regenT - dt);
+  H.energy = Math.min(MAXE, H.energy + H.energyRegenRate * dt * ts); H.flash = Math.max(0, H.flash - dt); H.regenT = Math.max(0, H.regenT - dt);
   H.holeOff.x += (0 - H.holeOff.x) * Math.min(1, dt * 6); H.holeOff.y += (0 - H.holeOff.y) * Math.min(1, dt * 6);
   updateHoleBoost(dt);
   if (H.crippled > 0) { H.crippled -= dt; if (H.crippled <= 0) { H.crippled = 0; say('SYSTEMS BACK ONLINE.', 'good'); sfx.supply(); } }
@@ -891,6 +900,9 @@ function update(dt) {
     const before = Math.ceil(U.sd.t); U.sd.t -= dt; if (Math.ceil(U.sd.t) !== before && U.sd.t > 0) sfx.beep(600 + (5 - U.sd.t) * 120);
     if (U.sd.t <= 0) return doSelfDestruct();
   }
+  // the shipyard's upgrade cooldown only counts down while the hero is away from its quadrant - sitting right next to it,
+  // or coming back before time's up, freezes the countdown rather than resetting or ignoring it.
+  if (U.shipyard && U.shipyard.cdRemain > 0 && (H.qx !== U.shipyard.qx || H.qy !== U.shipyard.qy)) U.shipyard.cdRemain = Math.max(0, U.shipyard.cdRemain - dt);
   // anomaly identification
   const an = curQ().anom; if (an && !an.known && cheb(H.x, H.y, an.x, an.y) <= anIdR(an)) { an.known = true; sfx.ping(); say(`SHORT RANGE SENSORS IDENTIFY: ${ANOM[an.type].name}.`, 'warn'); }
   updateAnomaly(q, dt); updateStations(q, dt); updateRemnants(q, dt);
@@ -980,16 +992,45 @@ function dock() {
   if (!s) return say('NO STATION IN RANGE. STOP NEXT TO A SPACE STATION, THEN PRESS D.', 'warn');
   if (H.moving || H.jump) return say('STOP THE SHIP BEFORE DOCKING.', 'warn');
   if (stationUnderAttack(q, s)) return say('THE STATION IS UNDER ATTACK - DOCKING DENIED! DESTROY THE ATTACKING SHIPS FIRST.', 'bad');
-  U.pending = null; H.docking = { t: 3, s, done: false }; sfx.dockUp(); say('DOCKING... THE STATION\'S SHIELDS NOW PROTECT YOUR SHIP. WEAPONS OFFLINE WHILE DOCKED.', 'good');
+  U.pending = null; H.docking = { t: 3, s, done: false }; sfx.dockUp();
+  say(s.shipyard ? 'DOCKING AT THE SHIPYARD... ITS SHIELDS NOW PROTECT YOUR SHIP. WEAPONS OFFLINE WHILE DOCKED.' : 'DOCKING... THE STATION\'S SHIELDS NOW PROTECT YOUR SHIP. WEAPONS OFFLINE WHILE DOCKED.', 'good');
 }
 // A station counts as under attack if it was hit in the last few seconds, or any alien ship is currently targeting it.
 function stationUnderAttack(q, s) { return s.regenT > 0 || q.aliens.some(a => a.tgt === s); }
 function undock() { if (!H.docking) return; H.docking = null; sfx.click(); say('UNDOCKED. WEAPONS BACK ONLINE.', 'good'); }
 function finishDock() {
   const d = H.docking, s = d.s; d.done = true; d.t = 0;
-  if (s.readyAt > U.t) { say(`THE STATION IS STILL RESTOCKING (${Math.ceil(s.readyAt - U.t)}s) - NO SUPPLIES, BUT YOU ARE SHELTERED.`, 'warn'); return; }
-  H.shields = 100; H.hull = 100; H.energy = MAXE; H.torps = 10; H.mines = 6; H.crippled = 0; s.readyAt = U.t + 45;
-  sfx.supply(); say('DOCKING COMPLETE: SHIELDS, HULL, ENERGY, TORPEDOES AND MINES AT 100%. PRESS D TO UNDOCK.', 'good');
+  if (s.readyAt <= U.t) {
+    H.shields = 100; H.hull = 100; H.energy = MAXE; H.torps = H.torpsMax; H.mines = H.minesMax; H.crippled = 0; s.readyAt = U.t + 45;
+    sfx.supply(); say('DOCKING COMPLETE: SHIELDS, HULL, ENERGY, TORPEDOES AND MINES AT 100%. PRESS D TO UNDOCK.', 'good');
+  } else say(`THE STATION IS STILL RESTOCKING (${Math.ceil(s.readyAt - U.t)}s) - NO SUPPLIES, BUT YOU ARE SHELTERED.`, 'warn');
+  if (s.shipyard) tryShipyardUpgrade(s);   // independent of the repair/restock cooldown above - see its own comment
+}
+// The shipyard hands out one permanent upgrade per eligible visit, chosen at random from whichever of the 6 categories
+// haven't been granted yet (no repeats, so a full game can earn at most 6). Hull and shields are damage-resistance
+// multipliers rather than raised caps, so the existing 0-100% bars and their meaning never change. The scanner upgrade
+// only ever fires once (it's in the same one-shot pool as everything else) and targets an anomaly TYPE that actually
+// exists somewhere in this galaxy, so it's never wasted on something you'll never encounter.
+const SHIPYARD_UPGRADES = {
+  hull: () => { H.hullArmor *= .85; return 'HULL PLATING REINFORCED - INCOMING HULL DAMAGE REDUCED.'; },
+  shields: () => { H.shieldArmor *= .85; return 'SHIELD EMITTERS UPGRADED - INCOMING SHIELD DAMAGE REDUCED.'; },
+  torps: () => { H.torpsMax += 2; H.torps = Math.min(H.torpsMax, H.torps + 2); return `TORPEDO BAY EXPANDED - MAX TORPEDOES NOW ${H.torpsMax}.`; },
+  mines: () => { H.minesMax += 2; H.mines = Math.min(H.minesMax, H.mines + 2); return `MINE BAY EXPANDED - MAX MINES NOW ${H.minesMax} (MINEFIELDS CAN RUN LARGER TOO).`; },
+  reactor: () => { H.energyRegenRate += 1; return `REACTOR CORE UPGRADED - ENERGY REGENERATION NOW ${H.energyRegenRate}/s.`; },
+  scanner: () => {
+    const types = new Set();
+    for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) { const an = Q(x, y).anom; if (an) types.add(an.type); }
+    const arr = [...types];
+    if (!arr.length) return 'DEEP SCANNER ARRAY INSTALLED, BUT THERE IS NOTHING OUT THERE YET TO CALIBRATE IT TO.';
+    const type = arr[ri(arr.length)]; ANOM[type].idR = (ANOM[type].idR || 3) + 3;
+    return `DEEP SCANNER ARRAY CALIBRATED TO ${ANOM[type].name} SIGNATURES - IDENTIFICATION RANGE EXTENDED.`;
+  },
+};
+function tryShipyardUpgrade(s) {
+  if (!s.pool.length) return say('SHIPYARD: ALL UPGRADES INSTALLED - REPAIRS ONLY FROM HERE ON.', 'good');
+  if (s.cdRemain > 0) return say(`SHIPYARD: UPGRADE BAY RECALIBRATING - NEEDS ${Math.ceil(s.cdRemain)}s MORE OF FLIGHT TIME AWAY FROM THIS QUADRANT.`, 'warn');
+  const kind = s.pool.splice(ri(s.pool.length), 1)[0], msg = SHIPYARD_UPGRADES[kind]();
+  s.cdRemain = 120; sfx.levelUp(); say(`SHIPYARD UPGRADE: ${msg}`, 'good');
 }
 function hitStation(s, d) {
   const q = curQ(); if (U.over || !q.stations.includes(s)) return;
@@ -1000,7 +1041,9 @@ function hitStation(s, d) {
   else if (s.shield < 100 && !s.warned) { s.warned = true; say(`STATION SHIELDS CRITICAL (${Math.round(s.shield)}/${STATION_SHIELD})${mine ? ' - UNDOCK NOW!' : ''}`, 'bad'); sfx.alert(); }
 }
 function destroyStation(q, s) {
-  q.stations.splice(q.stations.indexOf(s), 1); fx(s.x, s.y, 'big', 1.2, 2); sfx.big(); U.shake = .6; say('THE SPACE STATION HAS BEEN DESTROYED!', 'bad');
+  q.stations.splice(q.stations.indexOf(s), 1); fx(s.x, s.y, 'big', 1.2, 2); sfx.big(); U.shake = .6;
+  say(s.shipyard ? 'THE SHIPYARD HAS BEEN DESTROYED! ANY UPGRADES NOT YET COLLECTED ARE LOST.' : 'THE SPACE STATION HAS BEEN DESTROYED!', 'bad');
+  if (s.shipyard && U.shipyard === s) U.shipyard = null;
   if (H.docking && H.docking.s === s) { H.docking = null; say('YOU WERE STILL DOCKED WHEN ITS SHIELDS FAILED!', 'bad'); hitHero(90); }
 }
 function updateStations(q, dt) {
@@ -1024,8 +1067,8 @@ function updateStations(q, dt) {
 }
 function salvage(q) {   // derelict ship: loot, or a nasty surprise
   const k = ri(6); sfx.ping();
-  if (k === 0) { const n = 3 + ri(3); H.torps = Math.min(10, H.torps + n); say(`DERELICT SHIP: SALVAGED ${n} TORPEDOES!`, 'good'); sfx.supply(); }
-  else if (k === 1) { const n = 2 + ri(3); H.mines = Math.min(6, H.mines + n); H.energy = Math.min(MAXE, H.energy + 300); say(`DERELICT SHIP: SALVAGED ${n} MINES AND SOME ENERGY CELLS.`, 'good'); sfx.supply(); }
+  if (k === 0) { const n = 3 + ri(3); H.torps = Math.min(H.torpsMax, H.torps + n); say(`DERELICT SHIP: SALVAGED ${n} TORPEDOES!`, 'good'); sfx.supply(); }
+  else if (k === 1) { const n = 2 + ri(3); H.mines = Math.min(H.minesMax, H.mines + n); H.energy = Math.min(MAXE, H.energy + 300); say(`DERELICT SHIP: SALVAGED ${n} MINES AND SOME ENERGY CELLS.`, 'good'); sfx.supply(); }
   else if (k === 2) { const n = 600 + ri(600); H.energy = Math.min(MAXE, H.energy + n); say(`DERELICT SHIP: ITS REACTOR IS STILL LIVE! ENERGY +${n}.`, 'good'); sfx.supply(); }
   else if (k === 3) { H.hull = Math.min(100, H.hull + 30); H.shields = 100; say('DERELICT SHIP: SPARE PARTS REPAIR YOUR HULL AND RESTORE YOUR SHIELDS.', 'good'); sfx.supply(); }
   else if (k === 4) { say('DERELICT SHIP: BOOBY TRAP!', 'bad'); fx(H.x, H.y, 'big', .8, 1); sfx.big(); hitHero(60); }
@@ -1365,15 +1408,17 @@ function drawExtras(q, t) {
   if (q.anom && q.anom.rocks) for (const rk of q.anom.rocks) drawRock(rk);
   for (const rk of q.debris) drawRock(rk);
   for (const s of q.stations) {
-    const x = cx(s.x), y = cx(s.y), ready = s.readyAt <= U.t;
+    const x = cx(s.x), y = cx(s.y), ready = s.readyAt <= U.t, sy = !!s.shipyard;
+    const hull = sy ? '#c9861f' : '#2f62d8', hullEdge = sy ? '#ffcf7a' : '#8fb4ff', ring = sy ? '#ffe3a3' : '#cfe8ff', core = sy ? '#c99a4d' : '#8fb4d9', pip = sy ? '#4a3111' : '#12305a';
     c.save(); c.translate(x, y);
-    c.fillStyle = '#2f62d8'; c.fillRect(-21, -4, 11, 8); c.fillRect(10, -4, 11, 8); c.strokeStyle = '#8fb4ff'; c.lineWidth = 1; c.strokeRect(-21, -4, 11, 8); c.strokeRect(10, -4, 11, 8);
+    c.fillStyle = hull; c.fillRect(-21, -4, 11, 8); c.fillRect(10, -4, 11, 8); c.strokeStyle = hullEdge; c.lineWidth = 1; c.strokeRect(-21, -4, 11, 8); c.strokeRect(10, -4, 11, 8);
     c.beginPath(); c.moveTo(-15.5, -4); c.lineTo(-15.5, 4); c.moveTo(15.5, -4); c.lineTo(15.5, 4); c.stroke();
-    c.strokeStyle = '#cfe8ff'; c.lineWidth = 3; c.beginPath(); c.arc(0, 0, 11, 0, 6.3); c.stroke();
-    c.fillStyle = '#8fb4d9'; c.beginPath(); c.arc(0, 0, 6, 0, 6.3); c.fill(); c.fillStyle = '#12305a'; c.beginPath(); c.arc(0, 0, 2.5, 0, 6.3); c.fill();
+    c.strokeStyle = ring; c.lineWidth = 3; c.beginPath(); c.arc(0, 0, 11, 0, 6.3); c.stroke();
+    c.fillStyle = core; c.beginPath(); c.arc(0, 0, 6, 0, 6.3); c.fill(); c.fillStyle = pip; c.beginPath(); c.arc(0, 0, 2.5, 0, 6.3); c.fill();
     for (let i = 0; i < 4; i++) { const a = t * 1.2 + i * Math.PI / 2; c.fillStyle = ready ? '#33ff66' : '#ff9a4d'; c.beginPath(); c.arc(Math.cos(a) * 11, Math.sin(a) * 11, 1.8, 0, 6.3); c.fill(); }
     c.restore();
-    c.fillStyle = ready ? '#7fe8ff' : '#ff9a4d'; c.font = '7px "Courier New"'; c.textAlign = 'center'; c.fillText(ready ? 'SPACE STATION' : 'RESTOCKING ' + Math.ceil(s.readyAt - U.t) + 's', x, y + 25);
+    c.fillStyle = ready ? (sy ? '#ffd27a' : '#7fe8ff') : '#ff9a4d'; c.font = '7px "Courier New"'; c.textAlign = 'center';
+    c.fillText(ready ? (sy ? 'SHIPYARD' : 'SPACE STATION') : 'RESTOCKING ' + Math.ceil(s.readyAt - U.t) + 's', x, y + 25);
     const f = Math.max(0, s.shield) / STATION_SHIELD; c.fillStyle = '#0a1a33'; c.fillRect(x - 16, y + 29, 32, 3); c.fillStyle = f > .5 ? '#4fd8ff' : f > .25 ? '#ffc447' : '#ff4d5e'; c.fillRect(x - 16, y + 29, 32 * f, 3);
     if (s.flash > 0) { c.strokeStyle = `rgba(79,216,255,${Math.min(1, s.flash * 2.5)})`; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, 27, 0, 6.3); c.stroke(); }
   }
@@ -1505,14 +1550,14 @@ function scanAround() {   // the long range scanner: current + adjacent quadrant
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     const x = H.qx + dx, y = H.qy + dy; if (x < 0 || y < 0 || x >= GN || y >= GN) continue;
     const q = Q(x, y), i = qInfo(q);
-    if (i) q.mem = { al: i.al, st: i.st, pl: i.pl, sn: i.sn, an: i.an ? i.an.type : null };
+    if (i) q.mem = { al: i.al, st: i.st, pl: i.pl, sn: i.sn, sy: i.sy, an: i.an ? i.an.type : null };
     else if (q.anom && !q.anom.known) q.mem = { jammed: true };   // still unidentified, but remember that this sector was jammed
   }
 }
 function qInfo(q) {
   if (q.anom && !q.anom.known) return null;
   const seen = a => !(ATYPES[a.type].cloak && a.cloaked) && !(inNebula(q, a.x, a.y) && !(q === curQ() && cheb(a.x, a.y, H.x, H.y) <= 2));
-  return { al: q.aliens.filter(seen).length, st: q.stars.length, pl: q.planets.length, sn: q.stations.length, an: q.anom };
+  return { al: q.aliens.filter(seen).length, st: q.stars.length, pl: q.planets.length, sn: q.stations.length, sy: q.stations.some(s => s.shipyard), an: q.anom };
 }
 function drawLR(t) {
   g.fillStyle = '#03040a'; g.fillRect(0, 0, GW, GW);
@@ -1520,7 +1565,7 @@ function drawLR(t) {
     const q = Q(x, y), px = x * GC, py = y * GC, here = x === H.qx && y === H.qy, sc = isScanned(x, y);
     let info = null, dim = false, jammed = false;
     if (sc) info = qInfo(q);
-    else if (q.mem) { if (q.mem.jammed) jammed = true; else { info = { al: q.mem.al, st: q.mem.st, pl: q.mem.pl, sn: q.mem.sn, an: q.mem.an ? { type: q.mem.an } : null }; dim = true; } }
+    else if (q.mem) { if (q.mem.jammed) jammed = true; else { info = { al: q.mem.al, st: q.mem.st, pl: q.mem.pl, sn: q.mem.sn, sy: q.mem.sy, an: q.mem.an ? { type: q.mem.an } : null }; dim = true; } }
     g.fillStyle = here ? 'rgba(79,216,255,.16)' : q.visited ? 'rgba(40,70,120,.22)' : 'rgba(20,30,60,.25)'; g.fillRect(px + 1, py + 1, GC - 2, GC - 2);
     g.strokeStyle = 'rgba(79,216,255,.18)'; g.strokeRect(px + .5, py + .5, GC - 1, GC - 1);
     g.font = '7px "Courier New"'; g.fillStyle = 'rgba(160,190,230,.45)'; g.textAlign = 'left'; g.fillText(`${x + 1},${y + 1}`, px + 3, py + 8);
@@ -1533,7 +1578,7 @@ function drawLR(t) {
     g.fillStyle = info.al ? '#ff6a7a' : '#4a4f66'; g.fillText('☠' + info.al, px + 5, py + 21);
     g.fillStyle = '#ffd54d'; g.fillText('★' + info.st, px + 5, py + 32); g.fillStyle = '#6fb8ff'; g.fillText('●' + info.pl, px + 5, py + 43);
     if (info.an) { g.fillStyle = ANOM[info.an.type].col; g.fillText('◎', px + 34, py + 43); }
-    if (info.sn) { g.strokeStyle = '#4fd8ff'; g.lineWidth = 1.5; g.beginPath(); g.arc(px + 36, py + 17, 4, 0, 6.3); g.moveTo(px + 30, py + 17); g.lineTo(px + 42, py + 17); g.stroke(); g.fillStyle = '#4fd8ff'; g.fillText(info.sn, px + 43, py + 21); }
+    if (info.sn) { const sc2 = info.sy ? '#ffc447' : '#4fd8ff'; g.strokeStyle = sc2; g.lineWidth = 1.5; g.beginPath(); g.arc(px + 36, py + 17, 4, 0, 6.3); g.moveTo(px + 30, py + 17); g.lineTo(px + 42, py + 17); g.stroke(); g.fillStyle = sc2; g.fillText(info.sn, px + 43, py + 21); }
     g.globalAlpha = 1;
   }
   { const a0 = Math.max(0, H.qx - 1), b0 = Math.max(0, H.qy - 1), a1 = Math.min(GN - 1, H.qx + 1), b1 = Math.min(GN - 1, H.qy + 1);
@@ -1614,6 +1659,8 @@ SPACE pauses. Weapons work while moving.
 DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines.
 SPACE STATIONS (1-4 in the galaxy, shown as a ring icon on the long range scanner): stop in a sector NEXT TO a station and press D. After 3 seconds your shields, hull, energy, torpedoes and mines are all restored to 100% and any crippling is repaired. A station then needs 45 seconds to restock. You STAY docked until you press D again or fly away, and your weapons are offline while docked.
  A docked ship is protected by the station's shields (400 - four times yours): every hit meant for you drains the station instead. Aliens attack stations too, especially one you are docked at. Stations fire back at aligned aliens, but only every few seconds. If the station's shields run out it is destroyed, and a docked ship goes with it - undock in time! Shields recover slowly when the station is not under fire. You cannot dock at a station that is under attack - destroy the attacking ships first. Stations block movement and shots.
+
+THE SHIPYARD (a 5th, one-of-a-kind station, shown amber/gold instead of blue): dock exactly like a normal station for the same repairs, but each successful dock also grants ONE random permanent upgrade, until all six have been earned: HULL PLATING and SHIELD EMITTERS (damage taken is reduced, shown as tougher %/hit, not a higher cap), TORPEDO BAY and MINE BAY (raises your max carried, and mine bay also raises how many mines a minefield can lay), REACTOR CORE (faster energy regeneration), and SCANNER CALIBRATION (extends long-range anomaly detection range for one anomaly type already found in the galaxy). After each upgrade, a 120 second cooldown begins - but only once you LEAVE the shipyard's quadrant; if you return before it finishes, the countdown pauses until you leave again. The shipyard is just as vulnerable as any other station: destroy it by accident (or let aliens do it) and any upgrades not yet collected are lost for good.
 
 ANOMALIES (each is hidden as ??? until you fly close):
  ION STORM - drains your shields.   WORMHOLE - random teleport.   SUPPLY DEPOT - restocks you (one use).
@@ -1732,9 +1779,9 @@ function buildContacts() {
     const q = Q(x, y), sc = isScanned(x, y);
     let info = null, live = false;
     if (sc) { info = qInfo(q); live = true; }
-    else if (q.mem) { info = q.mem.jammed ? { al: 0, sn: 0, an: { known: false } } : { al: q.mem.al, sn: q.mem.sn, an: q.mem.an ? { type: q.mem.an, known: true } : null }; }
+    else if (q.mem) { info = q.mem.jammed ? { al: 0, sn: 0, an: { known: false } } : { al: q.mem.al, sn: q.mem.sn, sy: q.mem.sy, an: q.mem.an ? { type: q.mem.an, known: true } : null }; }
     if (!info) continue;
-    if (info.sn > 0) stations.push({ x, y, n: info.sn, live });
+    if (info.sn > 0) stations.push({ x, y, n: info.sn - (info.sy ? 1 : 0), sy: info.sy, live });
     if (info.an) anomalies.push({ x, y, type: info.an.known ? info.an.type : null, live });
     if (info.al > 0) aliens.push({ x, y, n: info.al, live });
   }
@@ -1754,7 +1801,12 @@ function renderContacts() {
     list.sort((a, b) => a.y - b.y || a.x - b.x);
     for (const item of list) el.appendChild(mapper(item));
   };
-  fill('ctStations', stations, s => contactRow(`SPACE STATION${s.n > 1 ? ' x' + s.n : ''}`, s.x, s.y, s.live, '#4fd8ff'));
+  fill('ctStations', stations, s => {
+    const parts = [];
+    if (s.n > 0) parts.push(`SPACE STATION${s.n > 1 ? ' x' + s.n : ''}`);
+    if (s.sy) parts.push('SHIPYARD');
+    return contactRow(parts.join(' + '), s.x, s.y, s.live, s.sy && !s.n ? '#ffc447' : '#4fd8ff');
+  });
   fill('ctAnoms', anomalies, a => contactRow(a.type ? ANOM[a.type].name : 'UNIDENTIFIED ANOMALY', a.x, a.y, a.live, a.type ? ANOM[a.type].col : '#b08cff'));
   fill('ctAliens', aliens, a => contactRow(`${a.n} ALIEN SHIP${a.n > 1 ? 'S' : ''}`, a.x, a.y, a.live, '#ff5c6c'));
 }
