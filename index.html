@@ -426,7 +426,7 @@ function killAlien(a) {
   fx(a.x, a.y, 'boom', .8, 1.2); sfx.boom();
   say(`${ATYPES[a.type].name} DESTROYED. ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} REMAIN.`, 'good');
   checkLevelUp();
-  if (U.aliensLeft === 0 && !U.over) { U.endT = 1.6; U.pendingEnd = [true, 'ALL ALIEN SHIPS HAVE BEEN DESTROYED. THE GALAXY IS SAFE!']; }
+  if (U.aliensLeft === 0 && !U.over && !U.dying) { U.endT = 1.6; U.pendingEnd = [true, 'ALL ALIEN SHIPS HAVE BEEN DESTROYED. THE GALAXY IS SAFE!']; }
 }
 // Weapon upgrades unlock as the commander's kill count rises. Each entry is the number of kills needed to REACH that level.
 const LEVELS = [
@@ -463,6 +463,14 @@ function blastAt(q, x, y) {   // a mine explosion: destroys everything in the se
   }
   if (q === curQ() && cheb(H.x, H.y, x, y) <= 1) { say('CAUGHT IN A MINE BLAST!', 'bad'); hitHero(70); }
   for (const o of q.mines.slice()) if (cheb(o.x, o.y, x, y) <= 1) detonate(q, o);
+}
+// Decides how a run ends once the ship's explosion (if any) and its weapons in flight are done: if the ship is lost but no aliens
+// remain, that's a posthumous victory; otherwise the pending result stands.
+function finishRun() {
+  const [win, msg, posth] = U.pendingEnd;
+  if (!U.dying) return endGame(win, msg, posth);
+  const won = U.aliensLeft === 0;
+  endGame(won, won ? (U.posthMsg || 'THE SFS HOPE WAS LOST, BUT THE LAST OF THE ALIENS HAS FALLEN. THE GALAXY IS SAFE, AND ITS PILOT IS HONOURED POSTHUMOUSLY.') : msg, won);
 }
 function endGame(win, msg, posthumous) {
   if (U.over) return; U.over = true; U.dying = false; engineOff(); (win ? sfx.win : sfx.lose)(); say(msg, win ? 'good' : 'bad');
@@ -999,10 +1007,12 @@ function advanceFx(dt) {
 }
 function update(dt) {
   if (!U || U.over) return;
-  if (U.endT > 0) { U.endT -= dt; if (U.endT <= 0 && U.pendingEnd) endGame(...U.pendingEnd); }
+  if (U.endT > 0) { U.endT -= dt; if (U.endT <= 0 && U.pendingEnd) { if (U.dying && U.proj.some(p => p.owner === 'hero')) U.endT = .25; else finishRun(); } }   // weapons already fired get to finish their run first
   if (U.paused) return;
   U.shake = Math.max(0, U.shake - dt);
-  if (U.dying) { advanceFx(dt); return; }   // the ship is exploding: let the burst play out, freeze everything else
+  // the ship is exploding: let the burst play out and weapons already in flight finish their run (one might still kill the last
+  // alien), but freeze everything else
+  if (U.dying) { for (const p of U.proj.slice()) updateProj(p, dt * tsAt(Math.round(p.x), Math.round(p.y))); advanceFx(dt); return; }
   U.t += dt; U.grace = Math.max(0, U.grace - dt);
   if (U.pending && (U.pending.t -= dt) <= 0) U.pending = null;
   const q = curQ(); scanAround();
@@ -1434,6 +1444,7 @@ function doSelfDestruct() {
   for (const a of q.aliens.slice()) { q.aliens.splice(q.aliens.indexOf(a), 1); U.aliensLeft--; U.kills++; fx(a.x, a.y, 'big', 1.2, 1.5); }
   q.mines = [];
   say('SELF-DESTRUCT COMPLETE. THE QUADRANT IS DESTROYED.', 'bad');
+  U.posthMsg = 'THE SFS HOPE GAVE EVERYTHING TO DESTROY THE LAST OF THE ALIENS. THE GALAXY IS SAFE, AND ITS PILOT IS HONOURED POSTHUMOUSLY.';
   U.endT = 1.3; U.pendingEnd = [U.aliensLeft === 0, U.aliensLeft === 0 ? 'THE SFS HOPE GAVE EVERYTHING TO DESTROY THE LAST OF THE ALIENS. THE GALAXY IS SAFE, AND ITS PILOT IS HONOURED POSTHUMOUSLY.' : `THE SFS HOPE WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`, true];
 }
 
