@@ -144,7 +144,7 @@
     <div id="stage">
       <canvas id="sr" width="1408" height="1408"></canvas>
       <div id="shipInfo" hidden></div>
-      <div id="overlay"><div class="card"><h2 id="ovT"></h2><pre id="ovM"></pre><button id="ovB" class="go">LAUNCH</button></div></div>
+      <div id="overlay"><div class="card"><h2 id="ovT"></h2><canvas id="ceremony" width="520" height="220" style="display:none;width:100%;max-width:520px;margin:0 0 10px;border-radius:6px;border:1px solid var(--line)"></canvas><pre id="ovM"></pre><button id="ovB" class="go">LAUNCH</button></div></div>
       <div id="guideOverlay">
         <div class="ghead"><h2>ANOMALY FIELD GUIDE</h2><button id="gClose" class="gclose go">CLOSE</button></div>
         <div id="ggrid"></div>
@@ -464,10 +464,109 @@ function blastAt(q, x, y) {   // a mine explosion: destroys everything in the se
   if (q === curQ() && cheb(H.x, H.y, x, y) <= 1) { say('CAUGHT IN A MINE BLAST!', 'bad'); hitHero(70); }
   for (const o of q.mines.slice()) if (cheb(o.x, o.y, x, y) <= 1) detonate(q, o);
 }
-function endGame(win, msg) {
+function endGame(win, msg, posthumous) {
   if (U.over) return; U.over = true; U.dying = false; engineOff(); (win ? sfx.win : sfx.lose)(); say(msg, win ? 'good' : 'bad');
   const mins = Math.floor(U.t / 60), secs = Math.floor(U.t % 60);
-  showOverlay(win ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED', `${msg}\n\nALIENS DESTROYED: ${U.kills}\nALIENS REMAINING: ${U.aliensLeft}\nMISSION TIME: ${mins}m ${secs}s`, 'PLAY AGAIN', () => { newGame(); });
+  showOverlay(!win ? 'MISSION FAILED' : posthumous ? 'POSTHUMOUS HONOURS' : 'MISSION ACCOMPLISHED', `${msg}\n\nALIENS DESTROYED: ${U.kills}\nALIENS REMAINING: ${U.aliensLeft}\nMISSION TIME: ${mins}m ${secs}s`, 'PLAY AGAIN', () => { newGame(); });
+  if (win) startCeremony(!!posthumous);
+}
+
+// ================================================================ medal ceremony (victory screen)
+// A small animated parade-ground scene: the crowd stands to attention, an admiral walks out with the medal, and the SFS Hope's
+// pilot is decorated to cheers, fireworks and confetti. When the last alien fell to the ship's own self-destruct the pilot
+// isn't there: the admiral lays the medal on an empty plinth beside a framed picture of the ship, everyone salutes, flags fly at half-mast.
+const hash01 = n => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+let cer = null;
+function startCeremony(posth) {
+  const cv = $('ceremony'); cv.style.display = 'block'; cer = { t0: performance.now(), posth };
+  const tick = now => { if (!cer || $('overlay').style.display === 'none') { cer = null; return; } drawCeremony(cv.getContext('2d'), (now - cer.t0) / 1000, cer.posth); requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+}
+function cerPerson(c, x, y, s, o) {   // feet at (x, y); o: body, skin, cap, pose ('stand' | 'cheer' | 'salute'), ph (animation phase), walk
+  const sw = o.walk ? Math.sin(o.ph * 12) * 3 * s : 0, bob = o.pose === 'cheer' ? Math.abs(Math.sin(o.ph * 7)) * 4 * s : 0;
+  y -= bob; c.lineCap = 'round'; c.strokeStyle = '#141a2e'; c.lineWidth = 2.4 * s;
+  c.beginPath(); c.moveTo(x - 1.6 * s, y - 10 * s); c.lineTo(x - 2 * s + sw, y); c.moveTo(x + 1.6 * s, y - 10 * s); c.lineTo(x + 2 * s - sw, y); c.stroke();
+  c.fillStyle = o.body; c.fillRect(x - 4 * s, y - 24 * s, 8 * s, 15 * s);
+  c.strokeStyle = o.body; c.lineWidth = 2.2 * s; c.beginPath();
+  const sh = y - 23 * s;
+  if (o.pose === 'cheer') { const w = Math.sin(o.ph * 9) * 2 * s; c.moveTo(x - 4 * s, sh); c.lineTo(x - 7 * s - w, sh - 10 * s); c.moveTo(x + 4 * s, sh); c.lineTo(x + 7 * s + w, sh - 10 * s); }
+  else if (o.pose === 'salute') { c.moveTo(x - 4 * s, sh); c.lineTo(x - 5 * s, sh + 9 * s); c.moveTo(x + 4 * s, sh); c.lineTo(x + 7 * s, sh - 3 * s); c.lineTo(x + 2.5 * s, sh - 7 * s); }
+  else { c.moveTo(x - 4 * s, sh); c.lineTo(x - 5 * s, sh + 9 * s); c.moveTo(x + 4 * s, sh); c.lineTo(x + 5 * s, sh + 9 * s); }
+  c.stroke();
+  c.fillStyle = o.skin; c.beginPath(); c.arc(x, y - 29 * s, 4 * s, 0, 6.3); c.fill();
+  c.fillStyle = o.cap; c.fillRect(x - 4.4 * s, y - 34 * s, 8.8 * s, 3 * s);
+  if (o.rank) { c.fillStyle = '#ffd54d'; c.fillRect(x - 5.5 * s, y - 24.5 * s, 3 * s, 2 * s); c.fillRect(x + 2.5 * s, y - 24.5 * s, 3 * s, 2 * s); }
+}
+function cerMedal(c, x, y, s) {
+  c.fillStyle = '#c0392b'; c.beginPath(); c.moveTo(x - 3 * s, y - 6 * s); c.lineTo(x, y); c.lineTo(x - 0.5 * s, y - 6 * s); c.fill();
+  c.fillStyle = '#2e6fd6'; c.beginPath(); c.moveTo(x + 3 * s, y - 6 * s); c.lineTo(x, y); c.lineTo(x + 0.5 * s, y - 6 * s); c.fill();
+  c.fillStyle = '#ffd54d'; c.beginPath(); c.arc(x, y + 2 * s, 3.6 * s, 0, 6.3); c.fill(); c.strokeStyle = '#b8860b'; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#fff3b0'; c.beginPath(); c.arc(x, y + 2 * s, 1.4 * s, 0, 6.3); c.fill();
+}
+function cerFlag(c, px, top, t, half) {
+  const y0 = top + (half ? 34 : 0);
+  c.fillStyle = '#9aa4b8'; c.fillRect(px - 1, top - 4, 2, 178 - top + 4);
+  c.fillStyle = '#2e6fd6'; c.beginPath(); c.moveTo(px + 1, y0);
+  for (let i = 0; i <= 24; i += 4) c.lineTo(px + 1 + i, y0 + Math.sin(t * 4 + i * .3) * 2);
+  for (let i = 24; i >= 0; i -= 4) c.lineTo(px + 1 + i, y0 + 16 + Math.sin(t * 4 + i * .3) * 2);
+  c.fill(); c.fillStyle = '#fff'; c.font = 'bold 9px "Courier New"'; c.textAlign = 'center'; c.fillText('★', px + 12, y0 + 12);
+}
+function drawCeremony(c, t, posth) {
+  const W = 520, G = 178, ease = u => u < 0 ? 0 : u > 1 ? 1 : u * u * (3 - 2 * u), lerp = (a, b, u) => a + (b - a) * ease(u);
+  const sky = c.createLinearGradient(0, 0, 0, G); sky.addColorStop(0, posth ? '#0a0f1c' : '#070b26'); sky.addColorStop(1, posth ? '#39435c' : '#3b3a78');
+  c.fillStyle = sky; c.fillRect(0, 0, W, 220);
+  c.fillStyle = '#fff'; for (let i = 0; i < 45; i++) { c.globalAlpha = .25 + .5 * Math.abs(Math.sin(t * 1.5 + i)); c.fillRect(hash01(i) * W, hash01(i + 60) * 110, 1.4, 1.4); } c.globalAlpha = 1;
+  // backdrop drapes and emblem
+  c.fillStyle = posth ? '#3b2230' : '#7a1f2b'; c.fillRect(170, 34, 180, G - 34);
+  c.fillStyle = 'rgba(0,0,0,.25)'; for (let i = 0; i < 9; i++) c.fillRect(170 + i * 20, 34, 3, G - 34);
+  c.fillStyle = '#ffd54d'; c.font = 'bold 34px "Courier New"'; c.textAlign = 'center'; c.fillText('★', 260, 88);
+  c.font = 'bold 9px "Courier New"'; c.fillText('SPACE FORCE', 260, 106);
+  cerFlag(c, 24, 30, t, posth); cerFlag(c, 496, 30, t, posth);
+  // fireworks (victory only)
+  if (!posth && t > 6.4) {
+    const kMax = Math.floor((t - 6.4) / .9);
+    for (let k = Math.max(0, kMax - 2); k <= kMax; k++) {
+      const age = t - 6.4 - k * .9, bx = 60 + hash01(k * 3) * 400, by = 26 + hash01(k * 3 + 1) * 70, hue = hash01(k * 3 + 2) * 360;
+      c.fillStyle = `hsl(${hue},95%,65%)`; c.globalAlpha = Math.max(0, 1 - age / 1.6);
+      for (let i = 0; i < 18; i++) { const a = i / 18 * 6.283; c.fillRect(bx + Math.cos(a) * age * 55, by + Math.sin(a) * age * 55 + age * age * 22, 2.4, 2.4); }
+    }
+    c.globalAlpha = 1;
+  }
+  // ground and carpet
+  c.fillStyle = '#1c2236'; c.fillRect(0, G, W, 42); c.fillStyle = posth ? '#5a2a3a' : '#a3232f'; c.fillRect(0, G + 2, W, 12);
+  c.fillStyle = 'rgba(255,213,77,.6)'; c.fillRect(0, G + 2, W, 1.5); c.fillRect(0, G + 12, W, 1.5);
+  // crowd: two rows either side, at attention until the medal is awarded, then cheering (or saluting throughout a posthumous ceremony)
+  const award = posth ? 5.4 : 6.2, standT = 1;
+  for (let side = 0; side < 2; side++) for (let row = 0; row < 2; row++) for (let i = 0; i < 6; i++) {
+    const n = side * 12 + row * 6 + i, x = (side ? 372 : 20) + i * 24 + (row ? 12 : 0), y = G - 8 * row + 6, arrive = standT * hash01(n) * 1.2;
+    if (t < arrive) continue;
+    const pose = posth ? (t > 3.6 ? 'salute' : 'stand') : (t > award ? 'cheer' : 'stand');
+    cerPerson(c, x, y, row ? .85 : 1, { body: (i + row) % 2 ? '#2a4a8a' : '#33559c', skin: ['#f1c9a5', '#c68e6a', '#8d5a3b', '#e6b98f'][n % 4], cap: '#0f1a3a', pose, ph: t + n * .7 });
+  }
+  // the admiral walks out carrying the medal on a cushion
+  const admX = lerp(-20, posth ? 240 : 236, (t - 1.2) / 2.4), walking = t > 1.2 && t < 3.6;
+  const cushionX = admX + 6, cushionY = G - 19;
+  cerPerson(c, admX, G + 6, 1.15, { body: '#f0f0f5', skin: '#e6b98f', cap: '#ffffff', pose: posth && t > 3.6 ? 'salute' : 'stand', ph: t, walk: walking, rank: true });
+  if (!posth) {
+    const px = lerp(545, 284, (t - 3.4) / 2.2), pw = t > 3.4 && t < 5.6;
+    cerPerson(c, px, G + 6, 1.15, { body: '#3fb6d8', skin: '#c68e6a', cap: '#12324a', pose: t > award ? 'salute' : 'stand', ph: t, walk: pw });
+    const pinned = t > award, mx = pinned ? px - 2.5 : lerp(cushionX, px - 2.5, (t - 5.6) / .6), my = pinned ? G - 15 : lerp(cushionY, G - 15, (t - 5.6) / .6);
+    if (t > 1.2) { if (!pinned) { c.fillStyle = '#5a1230'; c.fillRect(admX + 3, G - 20, 14, 3); } cerMedal(c, mx, my, 1); }
+    if (t > award && t < award + 1) { const a = 1 - (t - award), r = 4 + (t - award) * 14; c.strokeStyle = `rgba(255,255,220,${a})`; c.lineWidth = 1.6; c.beginPath(); c.moveTo(mx - r, my + 2); c.lineTo(mx + r, my + 2); c.moveTo(mx, my + 2 - r); c.lineTo(mx, my + 2 + r); c.stroke(); }
+  } else {
+    // empty plinth: the framed ship, a folded flag, a candle, and the medal laid down once the admiral arrives
+    c.fillStyle = '#d8d2c4'; c.fillRect(272, G - 24, 26, 30);
+    c.fillStyle = '#0a1030'; c.fillRect(276, G - 60, 18, 24); c.strokeStyle = '#ffd54d'; c.lineWidth = 1.5; c.strokeRect(276, G - 60, 18, 24);
+    c.fillStyle = '#7fd8ff'; c.beginPath(); c.moveTo(280, G - 48); c.lineTo(290, G - 48); c.lineTo(285, G - 54); c.fill();
+    c.fillStyle = '#2e6fd6'; c.beginPath(); c.moveTo(300, G - 24); c.lineTo(314, G - 24); c.lineTo(307, G - 33); c.fill();
+    c.fillStyle = '#eee'; c.fillRect(264, G - 30, 3, 8); c.fillStyle = `rgba(255,${180 + Math.sin(t * 14) * 30},70,.95)`; c.beginPath(); c.arc(265.5, G - 33 + Math.sin(t * 11), 2, 0, 6.3); c.fill();
+    if (t > 1.2) { const u = (t - 3.8) / 1.4, mx = lerp(cushionX, 285, u), my = lerp(cushionY, G - 26, u); if (u < 1) { c.fillStyle = '#5a1230'; c.fillRect(admX + 3, G - 20, 14, 3); } cerMedal(c, mx, my, 1); }
+  }
+  // confetti for a victory, slow drifting petals for a posthumous award
+  if (t > award) for (let i = 0; i < (posth ? 14 : 50); i++) {
+    const sp = posth ? 14 : 46, y = ((t - award) * sp * (.6 + hash01(i + 50)) + hash01(i + 100) * 240) % 250 - 15, x = hash01(i) * W + Math.sin(t * 2 + i) * 10;
+    c.fillStyle = posth ? '#e9e4f5' : ['#ffd54d', '#ff5c6c', '#4fd8ff', '#7dff7d', '#c08bff'][i % 5]; c.fillRect(x, y, posth ? 3 : 3.5, posth ? 2 : 2);
+  }
 }
 // The ship's destruction: a short burst of explosions plays before the mission-failed screen appears.
 function explodeHero(msg) {
@@ -1335,7 +1434,7 @@ function doSelfDestruct() {
   for (const a of q.aliens.slice()) { q.aliens.splice(q.aliens.indexOf(a), 1); U.aliensLeft--; U.kills++; fx(a.x, a.y, 'big', 1.2, 1.5); }
   q.mines = [];
   say('SELF-DESTRUCT COMPLETE. THE QUADRANT IS DESTROYED.', 'bad');
-  U.endT = 1.3; U.pendingEnd = [U.aliensLeft === 0, U.aliensLeft === 0 ? 'YOU GAVE THE SFS HOPE TO DESTROY THE LAST ALIENS. THE GALAXY IS SAFE!' : `THE SFS HOPE WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`];
+  U.endT = 1.3; U.pendingEnd = [U.aliensLeft === 0, U.aliensLeft === 0 ? 'THE SFS HOPE GAVE EVERYTHING TO DESTROY THE LAST OF THE ALIENS. THE GALAXY IS SAFE, AND ITS PILOT IS HONOURED POSTHUMOUSLY.' : `THE SFS HOPE WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`, true];
 }
 
 // ================================================================ drawing: sprites
@@ -1661,7 +1760,7 @@ function updateHUD() {
   for (const b of document.querySelectorAll('#jnums [data-n]')) b.style.display = (U.pending && U.pending.stage === 'pick' && +b.dataset.n > 2) || (U.pending && U.pending.stage === 'layCount' && +b.dataset.n > H.mines) ? 'none' : '';
   $('lpat').style.display = (U.pending && U.pending.stage === 'layPattern') ? 'grid' : 'none';
 }
-function showOverlay(t, m, b, cb) { $('ovT').textContent = t; $('ovM').textContent = m; $('ovB').textContent = b; $('overlay').style.display = 'flex'; $('ovB').onclick = () => { initAudio(); $('overlay').style.display = 'none'; cb(); }; }
+function showOverlay(t, m, b, cb) { $('ceremony').style.display = 'none'; $('ovT').textContent = t; $('ovM').textContent = m; $('ovB').textContent = b; $('overlay').style.display = 'flex'; $('ovB').onclick = () => { initAudio(); $('overlay').style.display = 'none'; cb(); }; }
 const HELP = `GOAL: destroy every alien ship hiding in the 8x8 galaxy of quadrants. Each quadrant is 32x32 sectors, so the main screen shows a 16x16 window that follows your ship.
 
 SHORT RANGE SCANNER: the small inset (top right of the main screen) shows the WHOLE quadrant - aliens, stars, planets, anomalies and mines (white box = what you can currently see). Press R to enlarge it.
