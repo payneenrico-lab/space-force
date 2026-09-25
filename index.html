@@ -1899,7 +1899,7 @@ const INTRO_HTML = `
 <h3>QUICK START</h3>
 <div class="row"><div style="flex:1 1 260px">
 <ol>
-<li><b>Fly:</b> press <kbd>I</kbd>, then a direction. Set the distance with <kbd>+</kbd> <kbd>-</kbd>.</li>
+<li><b>Fly:</b> press <kbd>I</kbd>, then a direction. Set the distance with <kbd>+</kbd> <kbd>-</kbd>. Press <kbd class="stop">5</kbd> to stop the ship.</li>
 <li><b>Fight:</b> <kbd>P</kbd> phaser or <kbd>T</kbd> torpedo, then a direction. Enemy fire follows the same 8 lines, so keep moving.</li>
 <li><b>Scout:</b> the long range scanner shows your quadrant and the 8 around it. The panel counts the aliens left.</li>
 <li><b>Repair:</b> stop beside a space station and press <kbd>D</kbd> to dock and resupply.</li>
@@ -1918,7 +1918,7 @@ const HELP_HTML = `
 </div></details>
 <details><summary>FLYING</summary><div>
 <p>Directions: ${PAD}</p>
-<p><b>Ion drive:</b> set the distance (<kbd>+</kbd> <kbd>-</kbd>, arrow keys or the slider), press <kbd>I</kbd>, then a direction. Longer trips cost more energy; if you can't afford the full distance you still go as far as your energy allows (at least 1 sector). The ship speeds up to the halfway point, then slows down. While moving, a direction changes course; <kbd>S</kbd>, <kbd>0</kbd> or <kbd>5</kbd> stops and refunds unused energy.</p>
+<p><b>Ion drive:</b> set the distance (<kbd>+</kbd> <kbd>-</kbd>, arrow keys or the slider), press <kbd>I</kbd>, then a direction. Longer trips cost more energy; if you can't afford the full distance you still go as far as your energy allows (at least 1 sector). The ship speeds up to the halfway point, then slows down. While moving, a direction changes course; <kbd class="stop">S</kbd>, <kbd class="stop">0</kbd> or <kbd class="stop">5</kbd> stops and refunds unused energy.</p>
 <p><b>Hyperjump:</b> <kbd>J</kbd> and a number 1-9 (0 = 10) jumps that many sectors in a random direction after a 2 second spool-up, possibly into another quadrant. It costs more the further you go.</p>
 <p><b>Collisions:</b> a COLLISION ALARM sounds when something is dead ahead. Ramming a star, planet, asteroid, station or the nest destroys your ship. Ramming an alien hurts both ships equally, and can destroy a weak alien outright.</p>
 </div></details>
