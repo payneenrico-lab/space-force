@@ -1641,18 +1641,28 @@ function drawMine(ctx, m, x, y, t) {
   const col = m.laid ? '#ffc447' : (m.owner === 'hero' ? '#4fd8ff' : '#ff4d5e'), rate = m.laid ? 6 : 2;
   ctx.fillStyle = armed && (((t * rate) | 0) & 1) ? col : '#333'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, 6.3); ctx.fill(); ctx.restore();
 }
-// The antimatter pod: a slim silver capsule flying nose-first, with a pulsing violet containment field around a glowing core and a
-// short trail of sparks behind it - deliberately nothing like the spiked, blinking ball of a mine.
+
+// The antimatter pod: a raging plasma orb held together by three flickering containment rings, with white lightning arcing off a
+// jittering core and a short violet tail streaming behind it - unstable-looking on purpose, and nothing like a mine's spiked ball.
+const podHash = n => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+function podBolt(ctx, x1, y1, x2, y2, t, seed, amp) {
+  ctx.beginPath(); ctx.moveTo(x1, y1);
+  for (let i = 1; i < 5; i++) { const u = i / 5, f = Math.floor(t * 16); ctx.lineTo(x1 + (x2 - x1) * u + (podHash(seed + i + f) - .5) * amp, y1 + (y2 - y1) * u + (podHash(seed + i * 3 + f) - .5) * amp); }
+  ctx.lineTo(x2, y2); ctx.stroke();
+}
 function drawPod(ctx, x, y, ang, t) {
-  const pulse = .5 + .5 * Math.sin(t * 12);
-  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
-  ctx.fillStyle = `rgba(192,110,255,${.18 + .12 * pulse})`; ctx.beginPath(); ctx.arc(0, 0, 13 + 2 * pulse, 0, 6.3); ctx.fill();   // containment glow
-  ctx.fillStyle = 'rgba(217,150,255,.55)'; for (let i = 1; i <= 3; i++) { ctx.globalAlpha = .6 - i * .16; ctx.beginPath(); ctx.arc(-9 - i * 5, Math.sin(t * 25 + i) * 2.2, 2.2 - i * .4, 0, 6.3); ctx.fill(); } ctx.globalAlpha = 1;   // exhaust sparks
-  ctx.fillStyle = '#c9d2e4'; ctx.strokeStyle = '#586074'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(11, 0); ctx.quadraticCurveTo(8, -5.5, 2, -5.5); ctx.lineTo(-8, -5.5); ctx.quadraticCurveTo(-11, -5.5, -11, -2); ctx.lineTo(-11, 2); ctx.quadraticCurveTo(-11, 5.5, -8, 5.5); ctx.lineTo(2, 5.5); ctx.quadraticCurveTo(8, 5.5, 11, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#3a4258'; ctx.fillRect(-4, -5.5, 1.6, 11); ctx.fillRect(3, -5.5, 1.6, 11);   // hull bands
-  ctx.shadowColor = '#d18bff'; ctx.shadowBlur = 8 + 6 * pulse; ctx.fillStyle = `rgb(${220 + 30 * pulse | 0},${140 + 60 * pulse | 0},255)`;
-  ctx.beginPath(); ctx.ellipse(-0.2, 0, 3.4, 2.6, 0, 0, 6.3); ctx.fill(); ctx.shadowBlur = 0;   // antimatter core
+  const f = Math.floor(t * 30), jx = (podHash(f) - .5) * 1.4, jy = (podHash(f + 9) - .5) * 1.4, pulse = .5 + .5 * Math.sin(t * 20);
+  ctx.save(); ctx.translate(x + jx, y + jy);
+  ctx.save(); ctx.rotate(ang);   // tail: violet plasma streaming back along the line of flight
+  for (let i = 0; i < 9; i++) { const u = i / 9; ctx.fillStyle = `rgba(${190 - u * 50 | 0},${90 + u * 30 | 0},255,${.5 * (1 - u)})`; ctx.beginPath(); ctx.arc(-9 - u * 40, Math.sin(t * 12 + i * .7) * 3 * u, 6 * (1 - u) + 1, 0, 6.3); ctx.fill(); }
+  ctx.restore();
+  const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 22); g.addColorStop(0, '#ffffff'); g.addColorStop(.25, '#ffb0f0'); g.addColorStop(.6, 'rgba(190,60,255,.6)'); g.addColorStop(1, 'rgba(190,60,255,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 22, 0, 6.3); ctx.fill();   // plasma orb
+  ctx.lineWidth = 1.2;   // containment rings: three ellipses spinning at different rates, each flickering as its field wavers
+  for (let i = 0; i < 3; i++) { ctx.strokeStyle = `rgba(120,220,255,${.35 + .6 * podHash(i * 9 + Math.floor(t * 18))})`; ctx.save(); ctx.rotate(t * (1.8 + i * .9) * (i % 2 ? -1 : 1) + i * 1.05); ctx.beginPath(); ctx.ellipse(0, 0, 16, 6 + i * 1.7, 0, 0, 6.3); ctx.stroke(); ctx.restore(); }
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.1; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 6;   // lightning leaping off the core
+  for (let i = 0; i < 6; i++) { const a = podHash(i * 3 + Math.floor(t * 16)) * 6.28, r = 10 + podHash(i + Math.floor(t * 16)) * 9; podBolt(ctx, Math.cos(a) * 3, Math.sin(a) * 3, Math.cos(a) * r, Math.sin(a) * r, t, i * 13, 4); }
+  ctx.shadowBlur = 0; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, 2.6 + pulse, 0, 6.3); ctx.fill();
   ctx.restore();
 }
 
