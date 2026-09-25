@@ -218,6 +218,7 @@ const ANOM = {
   minefield: { name: 'MINEFIELD',        col: '#ff6a6a', area: 1 },
   nest:      { name: 'ALIEN NEST',       col: '#7dff7d' },
 };
+const ATTACK_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const STATION_SHIELD = 400;   // 4x the hero's shield capacity
 const ANOM_KEYS = Object.keys(ANOM), anIdR = an => ANOM[an.type].idR || 3;
 // how close you must be to see hidden alien mines; a scanner-calibration upgrade to MINEFIELD raises it (idR was previously only used to identify the anomaly)
@@ -1255,6 +1256,9 @@ function updateAlien(a, dt) {
   if (a.tgt && !q.stations.includes(a.tgt)) { a.tgt = null; a.path = null; }
   const tx = a.tgt ? a.tgt.x : H.x, ty = a.tgt ? a.tgt.y : H.y, atHero = !a.tgt;
   const dx = tx - a.x, dy = ty - a.y; a.ang = Math.atan2(dy, dx);
+  // each ship favours one of the 8 bearings from its target (re-rolled every so often), so attacks come from every direction
+  // rather than mostly along the diagonals, which is where a plain "get aligned at range" approach naturally ends up
+  if (!a.pdir || (a.pdT -= dt) <= 0) { a.pdir = ATTACK_DIRS[ri(8)]; a.pdT = 8 + rnd() * 8; }
   if (T.cloak && !a.cloaked && a.cloakT <= 0 && !a.charge) { a.cloaked = true; a.cloakT = 5 + rnd() * 4; sfx.cloak(); }
   if (a.charge) {
     a.charge.t -= dt;
@@ -1296,7 +1300,8 @@ function updateAlien(a, dt) {
         if ((ox || oy) && (blockerAt(q, nx, ny) || q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny))) continue;
         const mined = q.mines.some(m => m.owner === 'hero' && m.arm <= 0 && m.x === nx && m.y === ny);
         const ddx = tx - nx, ddy = ty - ny, d = Math.max(Math.abs(ddx), Math.abs(ddy)), al = (ddx === 0 || ddy === 0 || Math.abs(ddx) === Math.abs(ddy)) && d > 0;
-        const s = -Math.abs(d - T.pref) + (al ? 3 : 0) + rnd() * .9 - (ox || oy ? 0 : .6) - (mined ? 3 : 0);
+        const slot = Math.max(Math.abs(nx - (tx - a.pdir[0] * T.pref)), Math.abs(ny - (ty - a.pdir[1] * T.pref)));   // distance to this ship's favoured firing spot
+        const s = -Math.abs(d - T.pref) + (al ? 3 : 0) - .6 * slot + rnd() * .9 - (ox || oy ? 0 : .6) - (mined ? 3 : 0);
         if (s > bs) { bs = s; best = [nx, ny]; }
       }
       if (best && (best[0] !== a.x || best[1] !== a.y)) {
