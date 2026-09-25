@@ -146,7 +146,7 @@
       <button id="cPhaser" class="wp">PHASER<small>P</small></button>
       <button id="cTorp" class="wp">TORPEDO<small>T</small></button>
       <button id="cMine" class="wp">LAUNCH POD<small>A</small></button>
-      <button id="cMineLay" class="wp">LAY MINEFIELD<small>L / M</small></button>
+      <button id="cMineLay" class="wp">LAY MINEFIELD<small>M</small></button>
       <button id="cMineSD" class="dg">POD SELF DESTRUCT<small>B</small></button>
       <button id="cDisr" class="wp lk">DISRUPTOR<small>X</small></button>
       <button id="cNova" class="dg lk">NOVA TORPEDO<small>V</small></button>
@@ -183,13 +183,14 @@
         <div id="bH"><span class="lbl">HULL <b id="tH"></b></span><div class="bar"><i></i></div></div>
         <div id="bE"><span class="lbl">ENERGY <b id="tE"></b></span><div class="bar"><i></i></div></div>
       </div>
-      <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stats" style="grid-template-columns:repeat(4,1fr)">
         <div><b id="sLvl">1</b><span class="lbl">LEVEL</span></div>
         <div><b id="sTorp">10</b><span class="lbl">TORPEDOES</span></div>
-        <div><b id="sMine">6</b><span class="lbl">MINES / PODS</span></div>
+        <div><b id="sPod">4</b><span class="lbl">PODS</span></div>
+        <div><b id="sMine">6</b><span class="lbl">MINES</span></div>
         <div><b id="sNova">0</b><span class="lbl">NOVAS</span></div>
         <div><b id="sAl">0</b><span class="lbl">ALIENS LEFT</span></div>
-        <div><b id="sPos">-</b><span class="lbl">Q / SECTOR</span></div>
+        <div style="grid-column:span 2"><b id="sPos">-</b><span class="lbl">Q / SECTOR</span></div>
       </div>
       <div id="prompt">READY.</div>
     </div>
@@ -338,7 +339,7 @@ function newGame() {
   for (const k of ANOM_KEYS) ANOM[k].idR = ANOM_BASE_IDR[k];
   U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], remnants: [], pendingRemnants: [], anom: null, visited: false, hue: ri(360) }; }
-  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, torpsMax: 10, minesMax: 6, hullArmor: 1, shieldArmor: 1, energyRegenRate: 3, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeAlong: false, holeCap: 1, holeBoost: 0, holeExited: false, holePeak: 0, holeExitRemain: 1, px: 6, py: 6 };
+  H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, torpsMax: 10, minesMax: 6, pods: 4, podsMax: 4, novasMax: 2, hullArmor: 1, shieldArmor: 1, energyRegenRate: 3, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeAlong: false, holeCap: 1, holeBoost: 0, holeExited: false, holePeak: 0, holeExitRemain: 1, px: 6, py: 6 };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
     for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: randomStarColour() }); }
@@ -371,7 +372,7 @@ function newGame() {
   // tryShipyardUpgrade(). Destructible by aliens exactly like any other station (find it, defend it, or lose the chance).
   { const [syQx, syQy] = stationFreeQ(), syQ = Q(syQx, syQy), syP = freeCell(syQ);
     const shipyard = { x: syP.x, y: syP.y, qx: syQx, qy: syQy, readyAt: 0, shield: STATION_SHIELD, regenT: 0, cd: 2, flash: 0, warned: false,
-                        shipyard: true, pool: ['hull', 'shields', 'torps', 'mines', 'reactor', 'scanner'], cdRemain: 0 };
+                        shipyard: true, pool: ['hull', 'shields', 'torps', 'mines', 'pods', 'novas', 'reactor', 'scanner'], cdRemain: 0 };
     syQ.stations.push(shipyard); U.shipyard = shipyard; }
   const hp = freeCell(curQ()); H.x = hp.x; H.y = hp.y; curQ().visited = true;
   const total = 16 + ri(13), pool = ['scout', 'scout', 'scout', 'raider', 'raider', 'cruiser', 'cruiser', 'cruiser', 'stealth', 'stealth', 'battleship'];
@@ -480,7 +481,7 @@ function checkLevelUp() {
   U.level = lvl.n; sfx.levelUp(); say(`COMMENDATION: PROMOTED TO LEVEL ${lvl.n}.`, 'good');
   if (lvl.unlock) {
     H[lvl.unlock + 'Unlocked'] = true;
-    if (lvl.unlock === 'nova') H.novas = Math.min(2, H.novas + 2); else H.energy = Math.min(MAXE, H.energy + 300);
+    if (lvl.unlock === 'nova') H.novas = Math.min(H.novasMax, H.novas + 2); else H.energy = Math.min(MAXE, H.energy + 300);
     say(`NEW WEAPON UNLOCKED: ${lvl.name} - ${lvl.desc}.`, 'good');
   }
 }
@@ -749,19 +750,19 @@ function fireNova(d) {
 }
 // Antimatter pods are launched: A, a direction, then a number 1-9 (0 = 10) for how many sectors the pod travels. It explodes at the end
 // of its run, or the moment it hits a ship or any obstacle. The blast destroys everything in the sector and the 8 around it. (Internally
-// these are still the `mine` projectiles, and they come out of the same H.mines stock as laid mines.)
+// these are still the `mine` projectiles; they come out of their own stock, H.pods.)
 function askMineDistance(d) {
-  if (H.mines <= 0) return say('NO ANTIMATTER PODS OR MINES REMAIN.', 'bad');
+  if (H.pods <= 0) return say('NO ANTIMATTER PODS REMAIN.', 'bad');
   if (U.proj.filter(p => p.mine && p.owner === 'hero').length >= 2) return say('POD LAUNCHERS RELOADING (MAX 2 PODS IN FLIGHT).', 'warn');
   U.pending = { cmd: 'mine', stage: 'dist', dir: d, t: 8 }; sfx.click();
 }
 function launchMine(d, n) {
-  U.pending = null; if (H.mines <= 0) return;
-  H.mines--; const [vx, vy] = VEC[d];
+  U.pending = null; if (H.pods <= 0) return;
+  H.pods--; const [vx, vy] = VEC[d];
   U.proj.push({ owner: 'hero', mine: true, x: H.x, y: H.y, vx, vy, sp: 4, dmg: 0, cx: H.x, cy: H.y, life: 15, left: n }); sfx.mine();
   say(`ANTIMATTER POD LAUNCHED ${dirName(d)} FOR ${n} SECTOR${n > 1 ? 'S' : ''}.${n === 1 ? ' WARNING: IT WILL EXPLODE NEXT TO YOU!' : ''}`, n === 1 ? 'warn' : '');
 }
-// LAY MINEFIELD: L or M, a count 1-9 (0 = 10), then a pattern letter - S (straight line behind the ship),
+// LAY MINEFIELD: M, a count 1-9 (0 = 10), then a pattern letter - S (straight line behind the ship),
 // L (diagonal back-left), R (diagonal back-right) or A (a fan spread across the rear arc). Unlike a launched pod, a laid
 // one doesn't travel and doesn't need a tracked ID - it's planted right where it's dropped and only ever goes off if
 // something else touches it (a ship, an alien, a weapon hit, or another blast reaching its cell). It arms once the ship
@@ -901,8 +902,8 @@ function checkSector() {
   else if (an.type === 'radiat') radiationEffect();
   else if (an.type === 'worm') { say('WORMHOLE! YOU ARE BEING TORN THROUGH SPACE...', 'warn'); stopShip(null); H.jump = { t: .6, worm: true, qx: ri(GN), qy: ri(GN) }; sfx.jumpUp(); }
   else if (an.type === 'depot') {
-    H.torps = Math.min(H.torpsMax, H.torps + 4); H.mines = Math.min(H.minesMax, H.mines + 3); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
-    q.anom = null; sfx.supply(); say('SUPPLY DEPOT: TORPEDOES, MINES AND PODS, ENERGY, HULL AND SHIELDS RESTORED!', 'good');
+    H.torps = Math.min(H.torpsMax, H.torps + 4); H.mines = Math.min(H.minesMax, H.mines + 3); H.pods = Math.min(H.podsMax, H.pods + 2); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
+    q.anom = null; sfx.supply(); say('SUPPLY DEPOT: TORPEDOES, MINES, PODS, ENERGY, HULL AND SHIELDS RESTORED!', 'good');
   }
   else if (an.type === 'hole') explodeHero('THE SFS HOPE WAS CRUSHED BY THE BLACK HOLE.', true);   // swallowed whole - no blast escapes
   else if (an.type === 'derelict') { q.anom = null; salvage(q); }
@@ -1200,7 +1201,7 @@ function undock() { if (!H.docking) return; H.docking = null; sfx.click(); say('
 function finishDock() {
   const d = H.docking, s = d.s; d.done = true; d.t = 0;
   if (s.readyAt <= U.t) {
-    H.shields = 100; H.hull = 100; H.energy = MAXE; H.torps = H.torpsMax; H.mines = H.minesMax; H.crippled = 0; s.readyAt = U.t + 45;
+    H.shields = 100; H.hull = 100; H.energy = MAXE; H.torps = H.torpsMax; H.mines = H.minesMax; H.pods = H.podsMax; H.crippled = 0; s.readyAt = U.t + 45;
     sfx.supply(); say('DOCKING COMPLETE: SHIELDS, HULL, ENERGY, TORPEDOES, MINES AND PODS AT 100%. PRESS D TO UNDOCK.', 'good');
   } else say(`THE STATION IS STILL RESTOCKING (${Math.ceil(s.readyAt - U.t)}s) - NO SUPPLIES, BUT YOU ARE SHELTERED.`, 'warn');
   if (s.shipyard) tryShipyardUpgrade(s);   // independent of the repair/restock cooldown above - see its own comment
@@ -1214,7 +1215,9 @@ const SHIPYARD_UPGRADES = {
   hull: () => { H.hullArmor *= .85; return 'HULL PLATING REINFORCED - INCOMING HULL DAMAGE REDUCED.'; },
   shields: () => { H.shieldArmor *= .85; return 'SHIELD EMITTERS UPGRADED - INCOMING SHIELD DAMAGE REDUCED.'; },
   torps: () => { H.torpsMax += 2; H.torps = Math.min(H.torpsMax, H.torps + 2); return `TORPEDO BAY EXPANDED - MAX TORPEDOES NOW ${H.torpsMax}.`; },
-  mines: () => { H.minesMax += 2; H.mines = Math.min(H.minesMax, H.mines + 2); return `MINE AND POD BAY EXPANDED - MAX MINES / PODS NOW ${H.minesMax} (MINEFIELDS CAN RUN LARGER TOO).`; },
+  mines: () => { H.minesMax += 2; H.mines = Math.min(H.minesMax, H.mines + 2); return `MINE BAY EXPANDED - MAX MINES NOW ${H.minesMax} (MINEFIELDS CAN RUN LARGER TOO).`; },
+  pods: () => { H.podsMax += 2; H.pods = Math.min(H.podsMax, H.pods + 2); return `ANTIMATTER POD BAY EXPANDED - MAX PODS NOW ${H.podsMax}.`; },
+  novas: () => { H.novasMax += 1; if (H.novaUnlocked) H.novas = Math.min(H.novasMax, H.novas + 1); return `NOVA BAY EXPANDED - MAX NOVA TORPEDOES NOW ${H.novasMax}.`; },
   reactor: () => { H.energyRegenRate += 1; return `REACTOR CORE UPGRADED - ENERGY REGENERATION NOW ${H.energyRegenRate}/s.`; },
   scanner: () => {
     const types = new Set();
@@ -1268,7 +1271,7 @@ function updateStations(q, dt) {
 function salvage(q) {   // derelict ship: loot, or a nasty surprise
   const k = ri(6); sfx.ping();
   if (k === 0) { const n = 3 + ri(3); H.torps = Math.min(H.torpsMax, H.torps + n); say(`DERELICT SHIP: SALVAGED ${n} TORPEDOES!`, 'good'); sfx.supply(); }
-  else if (k === 1) { const n = 2 + ri(3); H.mines = Math.min(H.minesMax, H.mines + n); H.energy = Math.min(MAXE, H.energy + 300); say(`DERELICT SHIP: SALVAGED ${n} MINES / ANTIMATTER PODS AND SOME ENERGY CELLS.`, 'good'); sfx.supply(); }
+  else if (k === 1) { const n = 2 + ri(3); H.mines = Math.min(H.minesMax, H.mines + n); H.energy = Math.min(MAXE, H.energy + 300); say(`DERELICT SHIP: SALVAGED ${n} MINES AND SOME ENERGY CELLS.`, 'good'); sfx.supply(); }
   else if (k === 2) { const n = 600 + ri(600); H.energy = Math.min(MAXE, H.energy + n); say(`DERELICT SHIP: ITS REACTOR IS STILL LIVE! ENERGY +${n}.`, 'good'); sfx.supply(); }
   else if (k === 3) { H.hull = Math.min(100, H.hull + 30); H.shields = 100; say('DERELICT SHIP: SPARE PARTS REPAIR YOUR HULL AND RESTORE YOUR SHIELDS.', 'good'); sfx.supply(); }
   else if (k === 4) { say('DERELICT SHIP: BOOBY TRAP!', 'bad'); fx(H.x, H.y, 'big', .8, 1); sfx.big(); hitHero(60); }
@@ -1897,7 +1900,7 @@ function updateHUD() {
   $('bS').firstElementChild.nextElementSibling.firstChild.style.width = H.shields + '%'; $('tS').textContent = Math.round(H.shields) + '%';
   $('bH').firstElementChild.nextElementSibling.firstChild.style.width = Math.max(0, H.hull) + '%'; $('tH').textContent = Math.max(0, Math.round(H.hull)) + '%';
   $('bE').firstElementChild.nextElementSibling.firstChild.style.width = H.energy / MAXE * 100 + '%'; $('tE').textContent = Math.round(H.energy);
-  $('sTorp').textContent = H.torps; $('sMine').textContent = H.mines; $('sAl').textContent = U.aliensLeft; $('sPos').textContent = `${H.qx + 1},${H.qy + 1} / ${H.x + 1},${H.y + 1}`;
+  $('sTorp').textContent = H.torps; $('sMine').textContent = H.mines; $('sPod').textContent = H.pods; $('sAl').textContent = U.aliensLeft; $('sPos').textContent = `${H.qx + 1},${H.qy + 1} / ${H.x + 1},${H.y + 1}`;
   $('sLvl').textContent = U.level; $('sNova').textContent = H.novas;
   $('cDisr').classList.toggle('unlocked', H.disrUnlocked); $('cDisr').lastElementChild.textContent = H.disrUnlocked ? 'X' : `LV.${LEVELS.find(l => l.unlock === 'disr').n}`;
   $('cNova').classList.toggle('unlocked', H.novaUnlocked); $('cNova').lastElementChild.textContent = H.novaUnlocked ? 'V' : `LV.${LEVELS.find(l => l.unlock === 'nova').n}`;
@@ -1943,7 +1946,7 @@ const INTRO_HTML = `
 </ol></div>
 <div><span class="dim">DIRECTIONS (numpad or top row)</span><br>${PAD}</div></div>
 <h3>KEYS</h3>
-<div class="keys"><span><kbd>A</kbd> Antimatter pod</span><span><kbd>L</kbd> / <kbd>M</kbd> Lay minefield</span><span><kbd>J</kbd> Hyperjump</span><span><kbd>K</kbd> Self-destruct</span><span><kbd>R</kbd> Enlarge scanner</span><span><kbd>G</kbd> Anomaly guide</span><span><kbd>C</kbd> Contacts</span><span><kbd>H</kbd> Help</span><span><kbd>Space</kbd> Pause</span></div>
+<div class="keys"><span><kbd>A</kbd> Antimatter pod</span><span><kbd>M</kbd> Lay minefield</span><span><kbd>J</kbd> Hyperjump</span><span><kbd>K</kbd> Self-destruct</span><span><kbd>R</kbd> Enlarge scanner</span><span><kbd>G</kbd> Anomaly guide</span><span><kbd>C</kbd> Contacts</span><span><kbd>H</kbd> Help</span><span><kbd>Space</kbd> Pause</span></div>
 <p class="foot">Press <kbd>H</kbd> at any time for the full guide.</p>`;
 const HELP_HTML = `
 <details open><summary>THE BASICS</summary><div>
@@ -1964,11 +1967,11 @@ const HELP_HTML = `
 <li><kbd>P</kbd> <b>Phaser</b> + direction: fast and weaker. Up to 3 beams at once.</li>
 <li><kbd>T</kbd> <b>Torpedo</b> + direction: slow and powerful. Limited supply, 2 in flight.</li>
 <li><kbd>A</kbd> <b>Antimatter pod</b> + direction + a number 1-9 (0 = 10): travels that many sectors and explodes at the end or on hitting anything, destroying everything in its sector and the 8 around it. A distance of 1 blasts you too. 2 in flight.</li>
-<li><kbd>L</kbd> or <kbd>M</kbd> <b>Lay minefield</b>: pick how many mines (up to your stock), then a pattern &mdash; <kbd>S</kbd> straight behind, <kbd>L</kbd> / <kbd>R</kbd> diagonal, <kbd>A</kbd> a fan. They arm once you're 2 sectors clear and stay armed.</li>
+<li><kbd>M</kbd> <b>Lay minefield</b>: pick how many mines (up to your stock), then a pattern &mdash; <kbd>S</kbd> straight behind, <kbd>L</kbd> / <kbd>R</kbd> diagonal, <kbd>A</kbd> a fan. They arm once you're 2 sectors clear and stay armed.</li>
 <li><kbd>B</kbd> then <kbd>1</kbd>/<kbd>2</kbd> <b>Pod self-destruct</b>: detonates an antimatter pod still in flight, right where it is.</li>
-<li class="dim">Pods and mines share one stock (MINES / PODS on the panel).</li>
+<li class="dim">Pods, mines and nova torpedoes each have their own stock and their own bay.</li>
 <li><kbd>X</kbd> <b>Disruptor</b> (level 3): a beam that pierces every ship on its line. 2 beams, more energy per shot.</li>
-<li><kbd>V</kbd> <b>Nova torpedo</b> (level 6): detonates on hitting anything and annihilates every ship within 2 sectors. You carry only 2, and they can't be restocked.</li>
+<li><kbd>V</kbd> <b>Nova torpedo</b> (level 6): detonates on hitting anything and annihilates every ship within 2 sectors. You carry only 2 at first and they can't be restocked; the shipyard's nova bay raises the limit.</li>
 </ul>
 <p><b>Promotion:</b> each level comes at a share of the alien fleet destroyed &mdash; about 18%, 35%, 50%, 65% and 78% for levels 2 to 6.</p>
 <p>A pod or nova that hits a <b>star</b> triggers a supernova. A pod that hits a <b>planet</b> shatters it into debris; a nova obliterates it into a much bigger debris field. Debris blocks movement and shots like an asteroid, and can be blasted apart.</p>
@@ -1976,8 +1979,8 @@ const HELP_HTML = `
 <details><summary>STATIONS AND THE SHIPYARD</summary><div>
 <p><b>Space stations:</b> stop next to one and press <kbd>D</kbd>. After 3 seconds your shields, hull, energy, torpedoes and mines are restored to 100% and any crippling is repaired. A station then needs 45 seconds to restock. You stay docked (weapons offline) until you press <kbd>D</kbd> again or fly away.</p>
 <p>A docked ship is protected by the station's shields (400): every hit meant for you drains the station instead. Aliens attack stations, especially one you're docked at. If its shields run out it is destroyed, and a docked ship goes with it. You can't dock at a station under attack. There is at most one station per quadrant.</p>
-<p><b>The shipyard</b> (a fifth station, shown amber): it repairs like any station and provides <b>one of six possible upgrades to your ship</b>, until all six are earned:</p>
-<ul><li>Hull plating and shield emitters: less damage taken</li><li>Torpedo bay and mine bay: carry more (the mine bay also allows bigger minefields)</li><li>Reactor core: faster energy regeneration</li><li>Scanner calibration: identifies one anomaly type from farther away (and shows hidden mines from farther, for minefields)</li></ul>
+<p><b>The shipyard</b> (a fifth station, shown amber): it repairs like any station and provides <b>one of eight possible upgrades to your ship</b>, until all eight are earned:</p>
+<ul><li>Hull plating and shield emitters: less damage taken</li><li>Torpedo, mine, antimatter pod and nova bays: carry more of each (the mine bay also allows bigger minefields)</li><li>Reactor core: faster energy regeneration</li><li>Scanner calibration: identifies one anomaly type from farther away (and shows hidden mines from farther, for minefields)</li></ul>
 <p>After each upgrade, the shipyard needs time to prepare for the next upgrade. This cycle takes 120 seconds, and it only counts down while you're outside the shipyard's quadrant. The shipyard can be destroyed like any station, and its remaining upgrades are lost.</p>
 </div></details>
 <details><summary>ANOMALIES AND STARS</summary><div>
@@ -2195,7 +2198,7 @@ addEventListener('keydown', e => {
   if (dd) { e.preventDefault(); heroDir(dd); return; }
   switch (k) {
     case 'KeyI': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyA': cmd('mine'); break;
-    case 'KeyL': case 'KeyM': cmd('minelay'); break;
+    case 'KeyM': cmd('minelay'); break;
     case 'KeyX': cmd('disr'); break; case 'KeyV': cmd('nova'); break; case 'KeyB': cmd('minesd'); break;
     case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
     case 'KeyD': cmd('dock'); break;
@@ -2233,15 +2236,17 @@ function renderShipInfo() {
   if (H.shieldArmor < 1) ups.push(`SHIELD EMITTERS: -${pct(H.shieldArmor)}% SHIELD DAMAGE`);
   if (H.torpsMax > 10) ups.push(`TORPEDO BAY: MAX ${H.torpsMax}`);
   if (H.minesMax > 6) ups.push(`MINE BAY: MAX ${H.minesMax}`);
+  if (H.podsMax > 4) ups.push(`POD BAY: MAX ${H.podsMax}`);
+  if (H.novasMax > 2) ups.push(`NOVA BAY: MAX ${H.novasMax}`);
   if (H.energyRegenRate > 3) ups.push(`REACTOR CORE: ${H.energyRegenRate}/s REGEN`);
   for (const s of scan) ups.push(`SCANNER: ${s} SECTORS RANGE`);
   const row = (k, v) => `<div class="r"><span>${k}</span><b>${v}</b></div>`;
   el.innerHTML = `<h4>SFS HOPE</h4>` +
     row('SHIELDS', Math.round(H.shields) + '%') + row('HULL', Math.round(H.hull) + '%') + row('ENERGY', Math.round(H.energy)) +
-    row('TORPEDOES', `${H.torps}/${H.torpsMax}`) + row('MINES', `${H.mines}/${H.minesMax}`) + row('ENERGY REGEN', H.energyRegenRate + '/s') +
+    row('TORPEDOES', `${H.torps}/${H.torpsMax}`) + row('MINES', `${H.mines}/${H.minesMax}`) + row('PODS', `${H.pods}/${H.podsMax}`) + (H.novaUnlocked ? row('NOVAS', `${H.novas}/${H.novasMax}`) : '') + row('ENERGY REGEN', H.energyRegenRate + '/s') +
     (H.crippled > 0 ? '<div class="bad">CRIPPLED - SHIELDS OFFLINE</div>' : '') + (H.docking ? '<div class="u">DOCKED</div>' : '') +
     `<h4 style="margin-top:8px">UPGRADES</h4>` + (ups.length ? ups.map(u => `<div class="u">${u}</div>`).join('') : '<div class="n">NONE YET - FIND THE SHIPYARD</div>') +
-    (sy ? `<div class="n" style="margin-top:4px">${sy.pool.length ? `SHIPYARD: ${6 - sy.pool.length}/6 EARNED` + (sy.cdRemain > 0 ? `, NEXT IN ${Math.ceil(sy.cdRemain)}s AWAY` : '') : 'SHIPYARD: ALL 6 EARNED'}</div>` : '<div class="n" style="margin-top:4px">SHIPYARD DESTROYED</div>');
+    (sy ? `<div class="n" style="margin-top:4px">${sy.pool.length ? `SHIPYARD: ${8 - sy.pool.length}/8 EARNED` + (sy.cdRemain > 0 ? `, NEXT IN ${Math.ceil(sy.cdRemain)}s AWAY` : '') : 'SHIPYARD: ALL 8 EARNED'}</div>` : '<div class="n" style="margin-top:4px">SHIPYARD DESTROYED</div>');
 }
 function toggleShipInfo(open) { const el = $('shipInfo'); el.hidden = open === undefined ? !el.hidden : !open; if (!el.hidden) renderShipInfo(); }
 $('shipInfo').onclick = () => toggleShipInfo(false);
