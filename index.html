@@ -1502,7 +1502,7 @@ function updateAlien(a, dt) {
     const curD = Math.max(Math.abs(tx - a.x), Math.abs(ty - a.y));
     // a badly hurt ship runs for a wormhole, if there is one in the quadrant, and slips through it to safety (see alienWormhole)
     let fled = false; const worm = q.anom && q.anom.type === 'worm' ? q.anom : null;
-    if (worm && a.hp < T.hp * .4) {
+    if (worm && a.hp < T.hp * .15) {
       const sx = Math.sign(worm.x - a.x), sy = Math.sign(worm.y - a.y);
       for (const [ox, oy] of [[sx, sy], [sx, 0], [0, sy]]) {
         const nx = a.x + ox, ny = a.y + oy; if ((!ox && !oy) || nx < 0 || ny < 0 || nx >= SN || ny >= SN || blockerAt(q, nx, ny) || q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny)) continue;
