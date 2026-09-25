@@ -158,13 +158,15 @@
       <button id="cPause">PAUSE<small>SPACE</small></button>
       <button id="cHelp">HELP<small>H</small></button>
       <button id="cContacts">CONTACTS<small>C</small></button>
+      <button id="cSave">SAVE GAME<small>F</small></button>
+      <button id="cLoad">LOAD GAME<small>O</small></button>
     </div>
   </div>
   <div id="mainCol">
     <div id="stage">
       <canvas id="sr" width="1408" height="1408"></canvas>
       <div id="shipInfo" hidden></div>
-      <div id="overlay"><div class="card"><h2 id="ovT"></h2><canvas id="ceremony" width="520" height="220" style="display:none;width:100%;max-width:520px;margin:0 0 10px;border-radius:6px;border:1px solid var(--line)"></canvas><pre id="ovM"></pre><div id="ovHtml" style="display:none"></div><button id="ovB" class="go">LAUNCH</button></div></div>
+      <div id="overlay"><div class="card"><h2 id="ovT"></h2><canvas id="ceremony" width="520" height="220" style="display:none;width:100%;max-width:520px;margin:0 0 10px;border-radius:6px;border:1px solid var(--line)"></canvas><pre id="ovM"></pre><div id="ovHtml" style="display:none"></div><button id="ovB" class="go">LAUNCH</button> <button id="ovLoad" style="display:none">LOAD SAVED GAME</button></div></div>
       <div id="guideOverlay">
         <div class="ghead"><h2>ANOMALY FIELD GUIDE</h2><button id="gClose" class="gclose go">CLOSE</button></div>
         <div id="ggrid"></div>
@@ -1936,7 +1938,7 @@ function updateHUD() {
 }
 // `html`, when given, replaces the plain-text message with rich content (the intro and the help pages); `wide` widens the card for it
 function showOverlay(t, m, b, cb, html, wide) {
-  $('ceremony').style.display = 'none'; $('ovT').textContent = t;
+  $('ceremony').style.display = 'none'; $('ovT').textContent = t; $('ovLoad').style.display = 'none';
   $('ovM').style.display = html ? 'none' : ''; $('ovM').textContent = m;
   $('ovHtml').style.display = html ? 'block' : 'none'; $('ovHtml').innerHTML = html || '';
   document.querySelector('#overlay .card').classList.toggle('wide', !!wide);
@@ -1956,7 +1958,7 @@ const INTRO_HTML = `
 </ol></div>
 <div><span class="dim">DIRECTIONS (numpad or top row)</span><br>${PAD}</div></div>
 <h3>KEYS</h3>
-<div class="keys"><span><kbd>A</kbd> Antimatter pod</span><span><kbd>M</kbd> Lay minefield</span><span><kbd>J</kbd> Hyperjump</span><span><kbd>K</kbd> Self-destruct</span><span><kbd>R</kbd> Enlarge scanner</span><span><kbd>G</kbd> Anomaly guide</span><span><kbd>C</kbd> Contacts</span><span><kbd>H</kbd> Help</span><span><kbd>Space</kbd> Pause</span></div>
+<div class="keys"><span><kbd>A</kbd> Antimatter pod</span><span><kbd>M</kbd> Lay minefield</span><span><kbd>J</kbd> Hyperjump</span><span><kbd>K</kbd> Self-destruct</span><span><kbd>R</kbd> Enlarge scanner</span><span><kbd>G</kbd> Anomaly guide</span><span><kbd>C</kbd> Contacts</span><span><kbd>H</kbd> Help</span><span><kbd>F</kbd> Save game</span><span><kbd>O</kbd> Load game</span><span><kbd>Space</kbd> Pause</span></div>
 <p class="foot">Press <kbd>H</kbd> at any time for the full guide.</p>`;
 const HELP_HTML = `
 <details open><summary>THE BASICS</summary><div>
@@ -1965,6 +1967,7 @@ const HELP_HTML = `
 <p><b>Long range scanner</b> (galaxy map): reads your quadrant and the 8 around it live; quadrants further away show your last scan, dimmed. <b>???</b> means an anomaly is jamming it &mdash; fly close to identify it.</p>
 <p><b>Field guide</b> <kbd>G</kbd> shows every anomaly and what it does. <b>Contacts</b> <kbd>C</kbd> logs the stations, anomalies and aliens the scanner has found.</p>
 <p>Click your ship for a status and upgrades card.</p>
+<p><b>Save and load:</b> <kbd>F</kbd> saves the current game and <kbd>O</kbd> loads it (press <kbd>O</kbd> twice to confirm, since it replaces the game in progress). There is one save slot, kept in this browser. You can only save while the board is still: ship stopped, no weapons in flight, and not mid-jump or mid-dock. Aliens are saved wherever they are. On the opening screen, LOAD SAVED GAME appears when a save exists.</p>
 </div></details>
 <details><summary>FLYING</summary><div>
 <p>Directions: ${PAD}</p>
@@ -2024,6 +2027,48 @@ const HELP_HTML = `
 </ul>
 </div></details>
 <p class="foot"><kbd>Space</kbd> pauses. Weapons work while moving.</p>`;
+// ================================================================ save / load
+// One slot, kept in the browser's own storage. A game can only be saved while the board is still - the ship stopped, nothing
+// mid-jump or mid-dock, no weapons in flight (the aliens keep moving, and are saved wherever they stand). A save that can't be
+// loaded (a browser that blocks storage, or one from an older version of the game) is simply refused.
+const SAVE_KEY = 'spaceforce.save', SAVE_VERSION = 1;
+const hasSave = () => { try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; } };
+function saveBlocker() {
+  if (U.over || U.dying) return 'THE GAME IS OVER - NOTHING TO SAVE.';
+  if (H.moving || H.jump || U.jm || U.sd) return 'CANNOT SAVE WHILE THE SHIP IS MOVING, JUMPING OR SELF-DESTRUCTING - STOP FIRST.';
+  if (H.docking && !H.docking.done) return 'CANNOT SAVE WHILE DOCKING - WAIT FOR IT TO FINISH.';
+  if (U.proj.length || U.beams.length || U.cascade) return 'CANNOT SAVE WHILE WEAPONS ARE IN FLIGHT - WAIT A MOMENT.';
+  return '';
+}
+function saveGame() {
+  const why = saveBlocker(); if (why) return say(why, 'warn');
+  try {
+    for (const row of U.Q) for (const q of row) for (const a of q.aliens) a.tgtIdx = a.tgt ? q.stations.indexOf(a.tgt) : -1;   // a target station is saved as its index
+    const Us = Object.assign({}, U, { shipyard: null, cam: null, pending: null, fx: [], beams: [], proj: [] });
+    const Hs = Object.assign({}, H, { docking: H.docking ? { t: H.docking.t, done: H.docking.done, si: curQ().stations.indexOf(H.docking.s) } : null });
+    const idR = {}; for (const k of ANOM_KEYS) idR[k] = ANOM[k].idR;
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ v: SAVE_VERSION, U: Us, H: Hs, idR }, (k, val) => k === 'tgt' ? undefined : val));
+    sfx.ping(); say('GAME SAVED.', 'good');
+  } catch (e) { say('COULD NOT SAVE - BROWSER STORAGE IS UNAVAILABLE OR FULL.', 'bad'); }
+}
+function loadGame() {
+  try {
+    const d = JSON.parse(localStorage.getItem(SAVE_KEY)); if (!d || d.v !== SAVE_VERSION) throw new Error('bad save');
+    U = d.U; H = d.H;
+    for (const row of U.Q) for (const q of row) { for (const a of q.aliens) a.tgt = a.tgtIdx >= 0 ? q.stations[a.tgtIdx] || null : null; for (const s of q.stations) if (s.shipyard) U.shipyard = s; }
+    if (H.docking) H.docking = { t: H.docking.t, done: H.docking.done, s: curQ().stations[H.docking.si] }; if (H.docking && !H.docking.s) H.docking = null;
+    for (const k of ANOM_KEYS) ANOM[k].idR = d.idR[k];
+    U.shipyard = U.shipyard || null; U.beams = []; U.proj = []; U.fx = []; U.paused = true; H.dist = H.dist || 8; $('dist').value = H.dist;
+    $('overlay').style.display = 'none'; $('contactsOverlay').style.display = 'none'; $('guideOverlay').style.display = 'none'; guideOpen = false; contactsOpen = false; $('shipInfo').hidden = true;
+    engineOff(); sfx.ping(); say('GAME LOADED. PRESS SPACE TO RESUME.', 'good');
+  } catch (e) { say('THERE IS NO SAVED GAME THAT CAN BE LOADED.', 'bad'); }
+}
+let loadArmed = 0;
+function askLoad() {   // loading replaces the game in progress, so it takes a second press to confirm
+  if (!hasSave()) return say('THERE IS NO SAVED GAME.', 'warn');
+  if (performance.now() - loadArmed < 5000) { loadArmed = 0; return loadGame(); }
+  loadArmed = performance.now(); say('THIS REPLACES YOUR CURRENT GAME - PRESS O (OR LOAD GAME) AGAIN WITHIN 5 SECONDS TO CONFIRM.', 'warn');
+}
 function showHelp() { if (U) U.paused = true; engineOff(); showOverlay('FLIGHT MANUAL', '', 'CONTINUE', () => { if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); } }, HELP_HTML, true); }
 
 // ================================================================ anomaly field guide
@@ -2215,6 +2260,7 @@ addEventListener('keydown', e => {
     case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break;
     case 'KeyS': case 'Digit0': case 'Numpad0': case 'Digit5': case 'Numpad5': cmd('stop'); break;
     case 'KeyH': cmd('help'); break;
+    case 'KeyF': saveGame(); break; case 'KeyO': askLoad(); break;
     case 'KeyG': cmd('guide'); break; case 'KeyC': cmd('contacts'); break;
     case 'Space': e.preventDefault(); cmd('pause'); break;
     case 'Escape': if (guideOpen) { hideGuide(); break; } if (contactsOpen) { hideContacts(); break; } if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } U.pending = null; U.jm = null; break;
@@ -2229,6 +2275,9 @@ $('dist').oninput = e => { H.dist = +e.target.value; };
 for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () => { initAudio(); heroDir(+b.dataset.d); };
 $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
 for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineLay', 'minelay'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cGuide', 'guide'], ['cPause', 'pause'], ['cHelp', 'help'], ['cContacts', 'contacts']]) $(id).onclick = () => { initAudio(); cmd(n); };
+$('cSave').onclick = () => { initAudio(); saveGame(); };
+$('cLoad').onclick = () => { initAudio(); askLoad(); };
+$('ovLoad').onclick = () => { initAudio(); loadGame(); };
 $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
 for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); else if (U.pending && U.pending.stage === 'pick') mineSelfDestruct(+b.dataset.n); else if (U.pending && U.pending.stage === 'layCount') mineLayCount(+b.dataset.n); };
 for (const b of document.querySelectorAll('#lpat [data-p]')) b.onclick = () => { initAudio(); if (U.pending && U.pending.stage === 'layPattern') layMines(b.dataset.p); };
@@ -2280,6 +2329,7 @@ function loop(now) {
 }
 newGame();
 showOverlay('SPACE FORCE', '', 'LAUNCH', () => { U.paused = false; }, INTRO_HTML, true);
+if (hasSave()) $('ovLoad').style.display = '';
 U.paused = true;
 requestAnimationFrame(loop);
 </script>
