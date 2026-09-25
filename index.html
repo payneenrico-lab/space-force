@@ -331,11 +331,12 @@ function newGame() {
     }
   }
   const nStations = 1 + ri(4);   // 1-4 space stations scattered through the galaxy
-  for (let i = 0; i < nStations; i++) { const q = Q(ri(GN), ri(GN)), p = freeCell(q); q.stations.push({ x: p.x, y: p.y, readyAt: 0, shield: STATION_SHIELD, regenT: 0, cd: 2, flash: 0, warned: false }); }
+  const stationFreeQ = () => { let x, y; do { x = ri(GN); y = ri(GN); } while (Q(x, y).stations.length); return [x, y]; };   // never more than one station per quadrant
+  for (let i = 0; i < nStations; i++) { const q = Q(...stationFreeQ()), p = freeCell(q); q.stations.push({ x: p.x, y: p.y, readyAt: 0, shield: STATION_SHIELD, regenT: 0, cd: 2, flash: 0, warned: false }); }
   U.stationCount = nStations;
   // the shipyard: a 5th, one-of-a-kind station that also hands out a permanent upgrade on top of the usual repair - see
   // tryShipyardUpgrade(). Destructible by aliens exactly like any other station (find it, defend it, or lose the chance).
-  { const syQx = ri(GN), syQy = ri(GN), syQ = Q(syQx, syQy), syP = freeCell(syQ);
+  { const [syQx, syQy] = stationFreeQ(), syQ = Q(syQx, syQy), syP = freeCell(syQ);
     const shipyard = { x: syP.x, y: syP.y, qx: syQx, qy: syQy, readyAt: 0, shield: STATION_SHIELD, regenT: 0, cd: 2, flash: 0, warned: false,
                         shipyard: true, pool: ['hull', 'shields', 'torps', 'mines', 'reactor', 'scanner'], cdRemain: 0 };
     syQ.stations.push(shipyard); U.shipyard = shipyard; }
