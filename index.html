@@ -219,7 +219,18 @@ const ANOM = {
   nest:      { name: 'ALIEN NEST',       col: '#7dff7d' },
 };
 const BLAST_R = 6, SD_PEAK = 400, NOVA_PEAK = 600, SD_SPEED = 5;   // blast radius (sectors), peak damage of a self-destruct / supernova, how fast the wave spreads (sectors/s)
-const STAR_NOVA_DMG = 180, PLANET_SHATTER = 150, PLANET_OBLIT = 300;   // damage a star needs to go supernova; a planet to shatter, and to be obliterated   // self-destruct: blast radius in sectors, and how fast the shockwave (and the cascade of explosions) spreads
+const PLANET_SHATTER = 150, PLANET_OBLIT = 300;   // damage a planet needs to shatter, and to be obliterated
+// Star types, by colour. `weight` is how common it is when the galaxy is made (milder than real life, where red dwarfs are ~3 in 4 and
+// blue stars well under 1%); `nova` is the blast damage that sets it off (a direct mine or nova torpedo hit always does); `hole` and
+// `cloud` are the odds its supernova leaves a black hole or a radiation cloud (the rest of the time it leaves nothing).
+const STAR_TYPES = {
+  '#ff8f6a': { name: 'RED DWARF',   weight: 40, nova: 280, hole: .05, cloud: .55 },
+  '#ffb45a': { name: 'ORANGE STAR', weight: 30, nova: 180, hole: .25, cloud: .60 },
+  '#ffe27a': { name: 'YELLOW STAR', weight: 20, nova: 180, hole: .25, cloud: .60 },
+  '#cfe4ff': { name: 'BLUE-WHITE STAR', weight: 10, nova: 120, hole: .50, cloud: .40 },
+};
+const starType = col => STAR_TYPES[col] || STAR_TYPES['#ffe27a'];
+const randomStarColour = () => { let r = rnd() * 100; for (const [col, t] of Object.entries(STAR_TYPES)) { if ((r -= t.weight) < 0) return col; } return '#ff8f6a'; };   // self-destruct: blast radius in sectors, and how fast the shockwave (and the cascade of explosions) spreads
 const ATTACK_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const STATION_SHIELD = 400;   // 4x the hero's shield capacity
 const ANOM_KEYS = Object.keys(ANOM), anIdR = an => ANOM[an.type].idR || 3;
@@ -310,7 +321,7 @@ function newGame() {
   H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, torpsMax: 10, minesMax: 6, hullArmor: 1, shieldArmor: 1, energyRegenRate: 3, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeAlong: false, holeCap: 1, holeBoost: 0, holeExited: false, holePeak: 0, holeExitRemain: 1, px: 6, py: 6 };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
     const q = Q(x, y);
-    for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: ['#ffe27a', '#ffb45a', '#cfe4ff', '#ff8f6a'][ri(4)] }); }
+    for (let i = 12 + ri(14); i > 0; i--) { const p = freeCell(q); q.stars.push({ x: p.x, y: p.y, col: randomStarColour() }); }
     for (let i = 2 + ri(7); i > 0; i--) { const p = freeCell(q); q.planets.push({ x: p.x, y: p.y, hue: ri(360), ring: rnd() < .3 }); }
     if (rnd() < .55) {
       const type = ANOM_KEYS[ri(ANOM_KEYS.length)], p = freeCell(q, ANOM[type].area ? 4 : 0), an = { x: p.x, y: p.y, type, known: false };
@@ -1117,11 +1128,12 @@ function updateRemnants(q, dt) {
     if (r.t <= 0) {
       q.pendingRemnants.splice(i, 1);
       if (!occupied(q, r.x, r.y)) {
-        // what a dead star leaves behind: a flat roll - 60% radiation cloud, 25% black hole, 15% nothing at all. A quadrant only holds
-        // one anomaly (and a black hole never forms right on top of the hero), so a black hole roll that can't happen becomes a cloud.
-        const roll = rnd(), canHole = !q.anom && !(q === curQ() && cheb(H.x, H.y, r.x, r.y) <= 2);
-        if (roll >= .85) continue;
-        if (roll < .25 && canHole) {
+        // what a dead star leaves behind is a flat roll weighted by the star's type (see STAR_TYPES): a black hole, a radiation cloud, or
+        // nothing at all. A quadrant only holds one anomaly (and a black hole never forms right on top of the hero), so a black hole roll
+        // that can't happen becomes a cloud.
+        const T = starType(r.col), roll = rnd(), canHole = !q.anom && !(q === curQ() && cheb(H.x, H.y, r.x, r.y) <= 2);
+        if (roll >= T.hole + T.cloud) continue;
+        if (roll < T.hole && canHole) {
           q.anom = { x: r.x, y: r.y, type: 'hole', known: true, t: 1.3 };
           if (q === curQ()) { fx(r.x, r.y, 'big', 1.2, 2); sfx.alert(); say('THE STAR HAS COLLAPSED INTO A BLACK HOLE!', 'bad'); }
         } else {
@@ -1287,7 +1299,7 @@ function applyBlast(q, kind, o, x, y, dmg, cascade) {
   else if (kind === 'star') {
     if (!q.stars.includes(o)) return;
     o.blastDmg = (o.blastDmg || 0) + dmg;
-    if (o.blastDmg < STAR_NOVA_DMG) return;   // scorched, but it holds together
+    if (o.blastDmg < starType(o.col).nova) return;   // scorched, but it holds together
     if (cascade) {
       q.stars.splice(q.stars.indexOf(o), 1); fx(x, y, 'big', 1.4, 3.2); sfx.novaHit(); U.shake = Math.max(U.shake, .5);
       scheduleBlast(q, x, y, BLAST_R, NOVA_PEAK, U.cascT);
@@ -1313,7 +1325,7 @@ function supernova(q, x, y, star) {
   blastTargets(q, x, y, BLAST_R, NOVA_PEAK, (kind, o, ex, ey, dmg) => applyBlast(q, kind, o, ex, ey, dmg, false));
   const hd = Math.hypot(H.x - x, H.y - y);
   if (q === curQ() && hd <= BLAST_R && !U.dying) { say('CAUGHT IN THE SUPERNOVA!', 'bad'); hitHero(NOVA_PEAK * blastF(hd, BLAST_R)); }
-  q.pendingRemnants.push({ x, y, t: 2.4 });   // once the blast has died down, the wreckage condenses into a radiation cloud
+  q.pendingRemnants.push({ x, y, t: 2.4, col: star && star.col });   // once the blast has died down, see updateRemnants for what is left
 }
 // Routes a mine's impact to the right outcome: a supernova (star), shattering (planet), or an ordinary blast.
 function mineImpact(q, x, y, hit) {
@@ -1871,6 +1883,8 @@ SPACE STATIONS (1-4 in the galaxy, shown as a ring icon on the long range scanne
  A docked ship is protected by the station's shields (400 - four times yours): every hit meant for you drains the station instead. Aliens attack stations too, especially one you are docked at. Stations fire back at aligned aliens, but only every few seconds. If the station's shields run out it is destroyed, and a docked ship goes with it - undock in time! Shields recover slowly when the station is not under fire. You cannot dock at a station that is under attack - destroy the attacking ships first. Stations block movement and shots.
 
 THE SHIPYARD (a 5th, one-of-a-kind station, shown amber/gold instead of blue): dock exactly like a normal station for the same repairs, but each successful dock also grants ONE random permanent upgrade, until all six have been earned: HULL PLATING and SHIELD EMITTERS (damage taken is reduced, shown as tougher %/hit, not a higher cap), TORPEDO BAY and MINE BAY (raises your max carried, and mine bay also raises how many mines a minefield can lay), REACTOR CORE (faster energy regeneration), and SCANNER CALIBRATION (extends long-range anomaly detection range for one anomaly type already found in the galaxy). After each upgrade, a 120 second cooldown begins - but only once you LEAVE the shipyard's quadrant; if you return before it finishes, the countdown pauses until you leave again. The shipyard is just as vulnerable as any other station: destroy it by accident (or let aliens do it) and any upgrades not yet collected are lost for good.
+
+STARS come in four colours, and it matters when a supernova is in play (a mine or nova torpedo hit always sets one off; a blast does only if it's hard enough): BLUE-WHITE stars are the rarest and ignite most easily, and often collapse into a black hole; YELLOW and ORANGE stars are the standard case; RED dwarfs are the commonest, need the biggest blast to ignite, and mostly leave a radiation cloud or nothing.
 
 ANOMALIES (each is hidden as ??? until you fly close):
  ION STORM - drains your shields.   WORMHOLE - random teleport.   SUPPLY DEPOT - restocks you (one use).
