@@ -82,6 +82,7 @@
   #ovHtml p { margin: 0 0 8px; } #ovHtml b { color: #ffffff; } #ovHtml .dim { color: #7f8fb0; }
   #ovHtml ol, #ovHtml ul { margin: 0 0 8px; padding-left: 20px; } #ovHtml li { margin: 0 0 5px; } #ovHtml li::marker { color: var(--cyan); }
   #ovHtml kbd { display: inline-block; min-width: 20px; padding: 0 5px; margin: 0 1px; text-align: center; font: bold 11px "Courier New", monospace; color: #dff4ff; background: #12305a; border: 1px solid #2f62d8; border-bottom-width: 2px; border-radius: 4px; }
+  #ovHtml kbd.stop { color: #ffe3e6; background: #7a1226; border-color: #ff4d5e; }
   #ovHtml .keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1.55em 12px; margin: 8px 0 14px; }   /* a blank line between each key row */
   #ovHtml .keys span { color: #9fb4d0; }
   #ovHtml .pad { display: inline-grid; grid-template-columns: repeat(3, 26px); gap: 3px; margin: 4px 0 8px; } #ovHtml .pad kbd { min-width: 0; padding: 3px 0; } #ovHtml .pad i { display: block; }
@@ -1892,7 +1893,7 @@ function showOverlay(t, m, b, cb, html, wide) {
   $('ovB').textContent = b; $('overlay').style.display = 'flex'; $('overlay').scrollTop = 0;
   $('ovB').onclick = () => { initAudio(); $('overlay').style.display = 'none'; cb(); };
 }
-const PAD = `<span class="pad"><kbd>7</kbd><kbd>8</kbd><kbd>9</kbd><kbd>4</kbd><kbd>&middot;</kbd><kbd>6</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span>`;
+const PAD = `<span class="pad"><kbd>7</kbd><kbd>8</kbd><kbd>9</kbd><kbd>4</kbd><kbd class="stop">5</kbd><kbd>6</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span>`;
 const INTRO_HTML = `
 <p class="lead">Alien warships have infiltrated the galaxy. You command the SFS Hope, the last defence cruiser. Find and destroy every alien ship before they find you.</p>
 <h3>QUICK START</h3>
@@ -1937,9 +1938,9 @@ const HELP_HTML = `
 <details><summary>STATIONS AND THE SHIPYARD</summary><div>
 <p><b>Space stations:</b> stop next to one and press <kbd>D</kbd>. After 3 seconds your shields, hull, energy, torpedoes and mines are restored to 100% and any crippling is repaired. A station then needs 45 seconds to restock. You stay docked (weapons offline) until you press <kbd>D</kbd> again or fly away.</p>
 <p>A docked ship is protected by the station's shields (400): every hit meant for you drains the station instead. Aliens attack stations, especially one you're docked at. If its shields run out it is destroyed, and a docked ship goes with it. You can't dock at a station under attack. There is at most one station per quadrant.</p>
-<p><b>The shipyard</b> (a fifth station, shown amber): it repairs like any station and also grants <b>one random permanent upgrade</b> per visit, until all six are earned:</p>
+<p><b>The shipyard</b> (a fifth station, shown amber): it repairs like any station and provides <b>one of six possible upgrades to your ship</b>, until all six are earned:</p>
 <ul><li>Hull plating and shield emitters: less damage taken</li><li>Torpedo bay and mine bay: carry more (the mine bay also allows bigger minefields)</li><li>Reactor core: faster energy regeneration</li><li>Scanner calibration: identifies one anomaly type from farther away (and shows hidden mines from farther, for minefields)</li></ul>
-<p>After each upgrade there is a 120 second cooldown, and it only counts down while you're outside the shipyard's quadrant. The shipyard can be destroyed like any station, and its remaining upgrades are lost.</p>
+<p>After each upgrade, the shipyard needs time to prepare for the next upgrade. This cycle takes 120 seconds, and it only counts down while you're outside the shipyard's quadrant. The shipyard can be destroyed like any station, and its remaining upgrades are lost.</p>
 </div></details>
 <details><summary>ANOMALIES AND STARS</summary><div>
 <p>Each anomaly shows as <b>???</b> until you fly close.</p>
