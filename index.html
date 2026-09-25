@@ -359,7 +359,7 @@ function newGame() {
     let q; do { q = Q(ri(GN), ri(GN)); } while (q === curQ() || q.aliens.length >= 5);
     newAlien(pool[ri(pool.length)], q);
   }
-  U.aliensLeft = total; U.grace = 1.5;
+  U.aliensLeft = total; U.totalAliens = total; U.grace = 1.5;
   $('log').innerHTML = '';
   say(`MISSION: DESTROY ALL ${total} ALIEN SHIPS IN THE GALAXY.`, 'warn');
   say(`YOU ARE IN QUADRANT ${H.qx + 1},${H.qy + 1}. PRESS H FOR CONTROLS.`);
@@ -443,16 +443,19 @@ function killAlien(a) {
 }
 // Weapon upgrades unlock as the commander's kill count rises. Each entry is the number of kills needed to REACH that level.
 const LEVELS = [
-  { n: 1, kills: 0 },
-  { n: 2, kills: 4 },
-  { n: 3, kills: 8, unlock: 'disr', name: 'DISRUPTOR', desc: 'a piercing beam that tears through every ship in its path' },
-  { n: 4, kills: 14 },
-  { n: 5, kills: 20 },
-  { n: 6, kills: 28, unlock: 'nova', name: 'NOVA TORPEDO', desc: 'a warhead that annihilates everything for sectors around' },
+  { n: 1, pct: 0 },
+  { n: 2, pct: .18 },
+  { n: 3, pct: .35, unlock: 'disr', name: 'DISRUPTOR', desc: 'a piercing beam that tears through every ship in its path' },
+  { n: 4, pct: .50 },
+  { n: 5, pct: .65 },
+  { n: 6, pct: .78, unlock: 'nova', name: 'NOVA TORPEDO', desc: 'a warhead that annihilates everything for sectors around' },
 ];
+// each level is reached at a share of the galaxy's alien fleet destroyed (rounded up), so every level is reachable whatever the fleet
+// size, and the nova torpedo always arrives with some aliens still left to use it on
+const killsFor = l => Math.ceil(l.pct * U.totalAliens);
 function checkLevelUp() {
   let lvl = LEVELS[0];
-  for (const l of LEVELS) if (U.kills >= l.kills) lvl = l;
+  for (const l of LEVELS) if (U.kills >= killsFor(l)) lvl = l;
   if (lvl.n === U.level) return;
   U.level = lvl.n; sfx.levelUp(); say(`COMMENDATION: PROMOTED TO LEVEL ${lvl.n}.`, 'good');
   if (lvl.unlock) {
@@ -1875,7 +1878,7 @@ ION DRIVE  set distance with + / - or the left/right arrow keys (or the slider),
 COLLISIONS: the computer sounds a COLLISION ALARM when a star, planet, asteroid, station, the nest or an alien ship is ahead on your course - react by stopping or changing direction. Ram a star, planet, asteroid, station or the nest and your ship is destroyed outright. Ram an alien ship instead and the impact hits BOTH ships equally hard (worse the more speed you still had left to travel, plus some randomness) - it can destroy a weak alien outright; if your own shields are already weak and you don't have enough reserve energy to hold them, the hull breach destroys your ship. Your ship explodes when destroyed, by any cause.
 PHASER (P) + direction: fast, weaker. Max 3 beams at once.
 TORPEDO (T) + direction: slow, powerful. Limited supply, max 2 in flight.
-PROMOTION: destroying aliens earns commendations. Reach LEVEL 3 to unlock the DISRUPTOR, and LEVEL 6 to unlock the NOVA TORPEDO.
+PROMOTION: destroying aliens earns commendations. Each level comes at a share of the alien fleet destroyed (about 18%, 35%, 50%, 65% and 78% for levels 2 to 6). Reach LEVEL 3 to unlock the DISRUPTOR, and LEVEL 6 to unlock the NOVA TORPEDO.
 DISRUPTOR (X) + direction - unlocked at level 3: a piercing beam that punches through EVERY ship on its line, not just the first. Stronger than the phaser. Max 2 beams, more energy per shot.
 NOVA TORPEDO (V) + direction - unlocked at level 6: the most lethal weapon aboard. Detonates on hitting anything, annihilating every ship for 2 sectors around outright. Only 2 are carried and they cannot be restocked, so use them wisely.
  Like a mine, a nova hitting a STAR triggers a SUPERNOVA. Hitting a PLANET does far more damage than a mine - the planet is obliterated, leaving a much bigger, wider-spread debris field.
