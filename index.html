@@ -1967,7 +1967,7 @@ const HELP_HTML = `
 <p><b>Long range scanner</b> (galaxy map): reads your quadrant and the 8 around it live; quadrants further away show your last scan, dimmed. <b>???</b> means an anomaly is jamming it &mdash; fly close to identify it.</p>
 <p><b>Field guide</b> <kbd>G</kbd> shows every anomaly and what it does. <b>Contacts</b> <kbd>C</kbd> logs the stations, anomalies and aliens the scanner has found.</p>
 <p>Click your ship for a status and upgrades card.</p>
-<p><b>Save and load:</b> <kbd>F</kbd> saves the current game and <kbd>O</kbd> loads it (press <kbd>O</kbd> twice to confirm, since it replaces the game in progress). There is one save slot, kept in this browser. You can only save while the board is still: ship stopped, no weapons in flight, and not mid-jump or mid-dock. Aliens are saved wherever they are. On the opening screen, LOAD SAVED GAME appears when a save exists.</p>
+<p><b>Save and load:</b> <kbd>F</kbd> saves the current game to a file, space-force-save.json, in your downloads. <kbd>O</kbd> (or LOAD SAVED GAME on the opening screen) lets you pick that file to load it, replacing the game in progress. It's a file, so it survives closing the browser or using a private window. You can only save while the board is still: ship stopped, no weapons in flight, and not mid-jump or mid-dock. Aliens are saved wherever they are.</p>
 </div></details>
 <details><summary>FLYING</summary><div>
 <p>Directions: ${PAD}</p>
@@ -2028,11 +2028,11 @@ const HELP_HTML = `
 </div></details>
 <p class="foot"><kbd>Space</kbd> pauses. Weapons work while moving.</p>`;
 // ================================================================ save / load
-// One slot, kept in the browser's own storage. A game can only be saved while the board is still - the ship stopped, nothing
-// mid-jump or mid-dock, no weapons in flight (the aliens keep moving, and are saved wherever they stand). A save that can't be
-// loaded (a browser that blocks storage, or one from an older version of the game) is simply refused.
-const SAVE_KEY = 'spaceforce.save', SAVE_VERSION = 1;
-const hasSave = () => { try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; } };
+// One save file. F downloads the current game as a small file (space-force-save.json), and O (or the LOAD buttons) lets you pick that file
+// back in. It's a file and not browser storage on purpose: private windows and browsers set to clear site data on exit would lose a
+// stored save. A game can only be saved while the board is still - the ship stopped, nothing mid-jump or mid-dock, no weapons in flight
+// (the aliens keep moving, and are saved wherever they stand). A file that can't be loaded (damaged, or from an older version) is refused.
+const SAVE_VERSION = 1;
 function saveBlocker() {
   if (U.over || U.dying) return 'THE GAME IS OVER - NOTHING TO SAVE.';
   if (H.moving || H.jump || U.jm || U.sd) return 'CANNOT SAVE WHILE THE SHIP IS MOVING, JUMPING OR SELF-DESTRUCTING - STOP FIRST.';
@@ -2047,13 +2047,15 @@ function saveGame() {
     const Us = Object.assign({}, U, { shipyard: null, cam: null, pending: null, fx: [], beams: [], proj: [] });
     const Hs = Object.assign({}, H, { docking: H.docking ? { t: H.docking.t, done: H.docking.done, si: curQ().stations.indexOf(H.docking.s) } : null });
     const idR = {}; for (const k of ANOM_KEYS) idR[k] = ANOM[k].idR;
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ v: SAVE_VERSION, U: Us, H: Hs, idR }, (k, val) => k === 'tgt' ? undefined : val));
-    sfx.ping(); say('GAME SAVED.', 'good');
-  } catch (e) { say('COULD NOT SAVE - BROWSER STORAGE IS UNAVAILABLE OR FULL.', 'bad'); }
+    const json = JSON.stringify({ game: 'space-force', v: SAVE_VERSION, U: Us, H: Hs, idR }, (k, val) => k === 'tgt' ? undefined : val);
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' })), a = document.createElement('a');
+    a.href = url; a.download = 'space-force-save.json'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    sfx.ping(); say('GAME SAVED TO A FILE (space-force-save.json, IN YOUR DOWNLOADS). USE LOAD GAME (O) TO PICK IT BACK IN.', 'good');
+  } catch (e) { say('COULD NOT SAVE THE GAME.', 'bad'); }
 }
-function loadGame() {
+function loadGameFromText(text) {
   try {
-    const d = JSON.parse(localStorage.getItem(SAVE_KEY)); if (!d || d.v !== SAVE_VERSION) throw new Error('bad save');
+    const d = JSON.parse(text); if (!d || d.game !== 'space-force' || d.v !== SAVE_VERSION) throw new Error('bad save');
     U = d.U; H = d.H;
     for (const row of U.Q) for (const q of row) { for (const a of q.aliens) a.tgt = a.tgtIdx >= 0 ? q.stations[a.tgtIdx] || null : null; for (const s of q.stations) if (s.shipyard) U.shipyard = s; }
     if (H.docking) H.docking = { t: H.docking.t, done: H.docking.done, s: curQ().stations[H.docking.si] }; if (H.docking && !H.docking.s) H.docking = null;
@@ -2061,13 +2063,12 @@ function loadGame() {
     U.shipyard = U.shipyard || null; U.beams = []; U.proj = []; U.fx = []; U.paused = true; H.dist = H.dist || 8; $('dist').value = H.dist;
     $('overlay').style.display = 'none'; $('contactsOverlay').style.display = 'none'; $('guideOverlay').style.display = 'none'; guideOpen = false; contactsOpen = false; $('shipInfo').hidden = true;
     engineOff(); sfx.ping(); say('GAME LOADED. PRESS SPACE TO RESUME.', 'good');
-  } catch (e) { say('THERE IS NO SAVED GAME THAT CAN BE LOADED.', 'bad'); }
+  } catch (e) { say('THAT FILE IS NOT A SAVED GAME THIS VERSION CAN LOAD.', 'bad'); }
 }
-let loadArmed = 0;
-function askLoad() {   // loading replaces the game in progress, so it takes a second press to confirm
-  if (!hasSave()) return say('THERE IS NO SAVED GAME.', 'warn');
-  if (performance.now() - loadArmed < 5000) { loadArmed = 0; return loadGame(); }
-  loadArmed = performance.now(); say('THIS REPLACES YOUR CURRENT GAME - PRESS O (OR LOAD GAME) AGAIN WITHIN 5 SECONDS TO CONFIRM.', 'warn');
+function askLoad() {   // opens a file picker; choosing a save file replaces the game in progress
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = () => { const f = inp.files && inp.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => loadGameFromText(String(r.result)); r.readAsText(f); };
+  inp.click();
 }
 function showHelp() { if (U) U.paused = true; engineOff(); showOverlay('FLIGHT MANUAL', '', 'CONTINUE', () => { if (U && !U.over) { U.paused = false; if (H.moving) engineOn(); } }, HELP_HTML, true); }
 
@@ -2277,7 +2278,7 @@ $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DES
 for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineLay', 'minelay'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cGuide', 'guide'], ['cPause', 'pause'], ['cHelp', 'help'], ['cContacts', 'contacts']]) $(id).onclick = () => { initAudio(); cmd(n); };
 $('cSave').onclick = () => { initAudio(); saveGame(); };
 $('cLoad').onclick = () => { initAudio(); askLoad(); };
-$('ovLoad').onclick = () => { initAudio(); loadGame(); };
+$('ovLoad').onclick = () => { initAudio(); askLoad(); };
 $('cScan').onclick = () => { initAudio(); U.scanBig = !U.scanBig; sfx.click(); };
 for (const b of document.querySelectorAll('#jnums [data-n]')) b.onclick = () => { initAudio(); if (U.jm) jumpNumber(+b.dataset.n); else if (U.pending && U.pending.stage === 'dist') launchMine(U.pending.dir, +b.dataset.n); else if (U.pending && U.pending.stage === 'pick') mineSelfDestruct(+b.dataset.n); else if (U.pending && U.pending.stage === 'layCount') mineLayCount(+b.dataset.n); };
 for (const b of document.querySelectorAll('#lpat [data-p]')) b.onclick = () => { initAudio(); if (U.pending && U.pending.stage === 'layPattern') layMines(b.dataset.p); };
@@ -2329,7 +2330,7 @@ function loop(now) {
 }
 newGame();
 showOverlay('SPACE FORCE', '', 'LAUNCH', () => { U.paused = false; }, INTRO_HTML, true);
-if (hasSave()) $('ovLoad').style.display = '';
+$('ovLoad').style.display = '';
 U.paused = true;
 requestAnimationFrame(loop);
 </script>
