@@ -145,9 +145,9 @@
       <button id="cMove" class="go">ION DRIVE<small>I</small></button>
       <button id="cPhaser" class="wp">PHASER<small>P</small></button>
       <button id="cTorp" class="wp">TORPEDO<small>T</small></button>
-      <button id="cMine" class="wp">LAUNCH MINE<small>L</small></button>
-      <button id="cMineLay" class="wp">LAY MINEFIELD<small>L D</small></button>
-      <button id="cMineSD" class="dg">MINE SELF DESTRUCT<small>B</small></button>
+      <button id="cMine" class="wp">LAUNCH POD<small>A</small></button>
+      <button id="cMineLay" class="wp">LAY MINEFIELD<small>L / M</small></button>
+      <button id="cMineSD" class="dg">POD SELF DESTRUCT<small>B</small></button>
       <button id="cDisr" class="wp lk">DISRUPTOR<small>X</small></button>
       <button id="cNova" class="dg lk">NOVA TORPEDO<small>V</small></button>
       <button id="cJump">HYPERJUMP<small>J</small></button>
@@ -186,7 +186,7 @@
       <div class="stats" style="grid-template-columns:repeat(3,1fr)">
         <div><b id="sLvl">1</b><span class="lbl">LEVEL</span></div>
         <div><b id="sTorp">10</b><span class="lbl">TORPEDOES</span></div>
-        <div><b id="sMine">6</b><span class="lbl">MINES</span></div>
+        <div><b id="sMine">6</b><span class="lbl">MINES / PODS</span></div>
         <div><b id="sNova">0</b><span class="lbl">NOVAS</span></div>
         <div><b id="sAl">0</b><span class="lbl">ALIENS LEFT</span></div>
         <div><b id="sPos">-</b><span class="lbl">Q / SECTOR</span></div>
@@ -666,7 +666,7 @@ function heroDir(d) {
     return;
   }
   if (H.moving) { H.dir = d; say(`COURSE CHANGED (${dirName(d)}).`); sfx.click(); }
-  else say('SELECT A COMMAND FIRST: I (ION DRIVE), P (PHASER), T (TORPEDO), L (MINE).', 'warn');
+  else say('SELECT A COMMAND FIRST: I (ION DRIVE), P (PHASER), T (TORPEDO), A (ANTIMATTER POD).', 'warn');
 }
 const dirName = d => ({ 7: 'NW', 8: 'N', 9: 'NE', 4: 'W', 6: 'E', 1: 'SW', 2: 'S', 3: 'SE' })[d];
 function engage(d) {
@@ -747,21 +747,22 @@ function fireNova(d) {
   U.proj.push({ owner: 'hero', nova: true, x: H.x, y: H.y, vx, vy, sp: 7, dmg: 0, cx: H.x, cy: H.y, life: 5 });
   sfx.novaFire(); say(`NOVA TORPEDO LAUNCHED ${dirName(d)}! ${H.novas} REMAINING.`, 'warn');
 }
-// Mines are launched: L, a direction, then a number 1-9 (0 = 10) for how many sectors the mine travels. It explodes at the end of its
-// run, or the moment it hits a ship or any obstacle. The blast destroys everything in the sector and the 8 around it.
+// Antimatter pods are launched: A, a direction, then a number 1-9 (0 = 10) for how many sectors the pod travels. It explodes at the end
+// of its run, or the moment it hits a ship or any obstacle. The blast destroys everything in the sector and the 8 around it. (Internally
+// these are still the `mine` projectiles, and they come out of the same H.mines stock as laid mines.)
 function askMineDistance(d) {
-  if (H.mines <= 0) return say('NO MINES REMAIN.', 'bad');
-  if (U.proj.filter(p => p.mine && p.owner === 'hero').length >= 2) return say('MINE LAUNCHERS RELOADING (MAX 2 MINES IN FLIGHT).', 'warn');
+  if (H.mines <= 0) return say('NO ANTIMATTER PODS OR MINES REMAIN.', 'bad');
+  if (U.proj.filter(p => p.mine && p.owner === 'hero').length >= 2) return say('POD LAUNCHERS RELOADING (MAX 2 PODS IN FLIGHT).', 'warn');
   U.pending = { cmd: 'mine', stage: 'dist', dir: d, t: 8 }; sfx.click();
 }
 function launchMine(d, n) {
   U.pending = null; if (H.mines <= 0) return;
   H.mines--; const [vx, vy] = VEC[d];
   U.proj.push({ owner: 'hero', mine: true, x: H.x, y: H.y, vx, vy, sp: 4, dmg: 0, cx: H.x, cy: H.y, life: 15, left: n }); sfx.mine();
-  say(`MINE LAUNCHED ${dirName(d)} FOR ${n} SECTOR${n > 1 ? 'S' : ''}.${n === 1 ? ' WARNING: IT WILL EXPLODE NEXT TO YOU!' : ''}`, n === 1 ? 'warn' : '');
+  say(`ANTIMATTER POD LAUNCHED ${dirName(d)} FOR ${n} SECTOR${n > 1 ? 'S' : ''}.${n === 1 ? ' WARNING: IT WILL EXPLODE NEXT TO YOU!' : ''}`, n === 1 ? 'warn' : '');
 }
-// LAY MINEFIELD: L then D (for "drop"), a count 1-9 (0 = 10), then a pattern letter - S (straight line behind the ship),
-// L (diagonal back-left), R (diagonal back-right) or A (a fan spread across the rear arc). Unlike a launched mine, a laid
+// LAY MINEFIELD: L or M, a count 1-9 (0 = 10), then a pattern letter - S (straight line behind the ship),
+// L (diagonal back-left), R (diagonal back-right) or A (a fan spread across the rear arc). Unlike a launched pod, a laid
 // one doesn't travel and doesn't need a tracked ID - it's planted right where it's dropped and only ever goes off if
 // something else touches it (a ship, an alien, a weapon hit, or another blast reaching its cell). It arms once the ship
 // is MINE_ARM_DIST sectors clear (see the mines-arming block in update()), and stays armed after that even if the ship
@@ -812,18 +813,18 @@ function layMines(pattern) {
   H.mines -= n; sfx.mine();
   say(`MINEFIELD LAID: ${n} MINE${n > 1 ? 'S' : ''} DROPPED. ARMS ONCE YOU'RE ${MINE_ARM_DIST} SECTORS CLEAR.`, 'good');
 }
-// MINE SELF-DESTRUCT: press the button, then 1 or 2, to remotely detonate that mine in flight right where it currently is.
+// POD SELF-DESTRUCT: press B, then 1 or 2, to remotely detonate that antimatter pod in flight right where it currently is.
 function enterMineSD() {
   const mines = U.proj.filter(p => p.mine && p.owner === 'hero');
-  if (!mines.length) return say('NO MINES IN FLIGHT TO SELF-DESTRUCT.', 'warn');
+  if (!mines.length) return say('NO ANTIMATTER PODS IN FLIGHT TO SELF-DESTRUCT.', 'warn');
   U.pending = { cmd: 'minesd', stage: 'pick', t: 8 }; sfx.click();
 }
 function mineSelfDestruct(n) {
   U.pending = null;
   const mines = U.proj.filter(p => p.mine && p.owner === 'hero'), m = mines[n - 1];
-  if (!m) return say(`NO MINE #${n} IN FLIGHT.`, 'warn');
+  if (!m) return say(`NO POD #${n} IN FLIGHT.`, 'warn');
   const q = curQ(), i = U.proj.indexOf(m); if (i >= 0) U.proj.splice(i, 1);
-  say(`MINE #${n} SELF-DESTRUCTED.`, 'warn');
+  say(`POD #${n} SELF-DESTRUCTED.`, 'warn');
   mineImpact(q, Math.round(m.x), Math.round(m.y), blockerAt(q, Math.round(m.x), Math.round(m.y)));
 }
 function selfDestruct() {
@@ -901,7 +902,7 @@ function checkSector() {
   else if (an.type === 'worm') { say('WORMHOLE! YOU ARE BEING TORN THROUGH SPACE...', 'warn'); stopShip(null); H.jump = { t: .6, worm: true, qx: ri(GN), qy: ri(GN) }; sfx.jumpUp(); }
   else if (an.type === 'depot') {
     H.torps = Math.min(H.torpsMax, H.torps + 4); H.mines = Math.min(H.minesMax, H.mines + 3); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
-    q.anom = null; sfx.supply(); say('SUPPLY DEPOT: TORPEDOES, MINES, ENERGY, HULL AND SHIELDS RESTORED!', 'good');
+    q.anom = null; sfx.supply(); say('SUPPLY DEPOT: TORPEDOES, MINES AND PODS, ENERGY, HULL AND SHIELDS RESTORED!', 'good');
   }
   else if (an.type === 'hole') explodeHero('THE SFS HOPE WAS CRUSHED BY THE BLACK HOLE.', true);   // swallowed whole - no blast escapes
   else if (an.type === 'derelict') { q.anom = null; salvage(q); }
@@ -1200,7 +1201,7 @@ function finishDock() {
   const d = H.docking, s = d.s; d.done = true; d.t = 0;
   if (s.readyAt <= U.t) {
     H.shields = 100; H.hull = 100; H.energy = MAXE; H.torps = H.torpsMax; H.mines = H.minesMax; H.crippled = 0; s.readyAt = U.t + 45;
-    sfx.supply(); say('DOCKING COMPLETE: SHIELDS, HULL, ENERGY, TORPEDOES AND MINES AT 100%. PRESS D TO UNDOCK.', 'good');
+    sfx.supply(); say('DOCKING COMPLETE: SHIELDS, HULL, ENERGY, TORPEDOES, MINES AND PODS AT 100%. PRESS D TO UNDOCK.', 'good');
   } else say(`THE STATION IS STILL RESTOCKING (${Math.ceil(s.readyAt - U.t)}s) - NO SUPPLIES, BUT YOU ARE SHELTERED.`, 'warn');
   if (s.shipyard) tryShipyardUpgrade(s);   // independent of the repair/restock cooldown above - see its own comment
 }
@@ -1213,7 +1214,7 @@ const SHIPYARD_UPGRADES = {
   hull: () => { H.hullArmor *= .85; return 'HULL PLATING REINFORCED - INCOMING HULL DAMAGE REDUCED.'; },
   shields: () => { H.shieldArmor *= .85; return 'SHIELD EMITTERS UPGRADED - INCOMING SHIELD DAMAGE REDUCED.'; },
   torps: () => { H.torpsMax += 2; H.torps = Math.min(H.torpsMax, H.torps + 2); return `TORPEDO BAY EXPANDED - MAX TORPEDOES NOW ${H.torpsMax}.`; },
-  mines: () => { H.minesMax += 2; H.mines = Math.min(H.minesMax, H.mines + 2); return `MINE BAY EXPANDED - MAX MINES NOW ${H.minesMax} (MINEFIELDS CAN RUN LARGER TOO).`; },
+  mines: () => { H.minesMax += 2; H.mines = Math.min(H.minesMax, H.mines + 2); return `MINE AND POD BAY EXPANDED - MAX MINES / PODS NOW ${H.minesMax} (MINEFIELDS CAN RUN LARGER TOO).`; },
   reactor: () => { H.energyRegenRate += 1; return `REACTOR CORE UPGRADED - ENERGY REGENERATION NOW ${H.energyRegenRate}/s.`; },
   scanner: () => {
     const types = new Set();
@@ -1267,7 +1268,7 @@ function updateStations(q, dt) {
 function salvage(q) {   // derelict ship: loot, or a nasty surprise
   const k = ri(6); sfx.ping();
   if (k === 0) { const n = 3 + ri(3); H.torps = Math.min(H.torpsMax, H.torps + n); say(`DERELICT SHIP: SALVAGED ${n} TORPEDOES!`, 'good'); sfx.supply(); }
-  else if (k === 1) { const n = 2 + ri(3); H.mines = Math.min(H.minesMax, H.mines + n); H.energy = Math.min(MAXE, H.energy + 300); say(`DERELICT SHIP: SALVAGED ${n} MINES AND SOME ENERGY CELLS.`, 'good'); sfx.supply(); }
+  else if (k === 1) { const n = 2 + ri(3); H.mines = Math.min(H.minesMax, H.mines + n); H.energy = Math.min(MAXE, H.energy + 300); say(`DERELICT SHIP: SALVAGED ${n} MINES / ANTIMATTER PODS AND SOME ENERGY CELLS.`, 'good'); sfx.supply(); }
   else if (k === 2) { const n = 600 + ri(600); H.energy = Math.min(MAXE, H.energy + n); say(`DERELICT SHIP: ITS REACTOR IS STILL LIVE! ENERGY +${n}.`, 'good'); sfx.supply(); }
   else if (k === 3) { H.hull = Math.min(100, H.hull + 30); H.shields = 100; say('DERELICT SHIP: SPARE PARTS REPAIR YOUR HULL AND RESTORE YOUR SHIELDS.', 'good'); sfx.supply(); }
   else if (k === 4) { say('DERELICT SHIP: BOOBY TRAP!', 'bad'); fx(H.x, H.y, 'big', .8, 1); sfx.big(); hitHero(60); }
@@ -1637,6 +1638,20 @@ function drawMine(ctx, m, x, y, t) {
   const col = m.laid ? '#ffc447' : (m.owner === 'hero' ? '#4fd8ff' : '#ff4d5e'), rate = m.laid ? 6 : 2;
   ctx.fillStyle = armed && (((t * rate) | 0) & 1) ? col : '#333'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, 6.3); ctx.fill(); ctx.restore();
 }
+// The antimatter pod: a slim silver capsule flying nose-first, with a pulsing violet containment field around a glowing core and a
+// short trail of sparks behind it - deliberately nothing like the spiked, blinking ball of a mine.
+function drawPod(ctx, x, y, ang, t) {
+  const pulse = .5 + .5 * Math.sin(t * 12);
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  ctx.fillStyle = `rgba(192,110,255,${.18 + .12 * pulse})`; ctx.beginPath(); ctx.arc(0, 0, 13 + 2 * pulse, 0, 6.3); ctx.fill();   // containment glow
+  ctx.fillStyle = 'rgba(217,150,255,.55)'; for (let i = 1; i <= 3; i++) { ctx.globalAlpha = .6 - i * .16; ctx.beginPath(); ctx.arc(-9 - i * 5, Math.sin(t * 25 + i) * 2.2, 2.2 - i * .4, 0, 6.3); ctx.fill(); } ctx.globalAlpha = 1;   // exhaust sparks
+  ctx.fillStyle = '#c9d2e4'; ctx.strokeStyle = '#586074'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(11, 0); ctx.quadraticCurveTo(8, -5.5, 2, -5.5); ctx.lineTo(-8, -5.5); ctx.quadraticCurveTo(-11, -5.5, -11, -2); ctx.lineTo(-11, 2); ctx.quadraticCurveTo(-11, 5.5, -8, 5.5); ctx.lineTo(2, 5.5); ctx.quadraticCurveTo(8, 5.5, 11, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#3a4258'; ctx.fillRect(-4, -5.5, 1.6, 11); ctx.fillRect(3, -5.5, 1.6, 11);   // hull bands
+  ctx.shadowColor = '#d18bff'; ctx.shadowBlur = 8 + 6 * pulse; ctx.fillStyle = `rgb(${220 + 30 * pulse | 0},${140 + 60 * pulse | 0},255)`;
+  ctx.beginPath(); ctx.ellipse(-0.2, 0, 3.4, 2.6, 0, 0, 6.3); ctx.fill(); ctx.shadowBlur = 0;   // antimatter core
+  ctx.restore();
+}
 
 // ================================================================ drawing: short range
 const cx = v => (v + .5) * CELL;
@@ -1768,7 +1783,7 @@ function drawSR(t) {
   for (const b of U.beams) { const k = b.t / b.dur, col = b.disr ? '192,139,255' : b.owner === 'hero' ? '79,216,255' : b.owner === 'station' ? '51,255,102' : '255,90,90'; c.strokeStyle = `rgba(${col},${1 - k})`; c.lineWidth = (b.disr ? 5 : 3) - k * 2; c.shadowColor = `rgb(${col})`; c.shadowBlur = b.disr ? 16 : 10;
     c.beginPath(); c.moveTo(cx(b.x1), cx(b.y1)); c.lineTo(cx(b.x2), cx(b.y2)); c.stroke(); c.shadowBlur = 0; }
   for (const p of U.proj) {
-    if (p.mine) { drawMine(c, { owner: p.owner, arm: 0 }, cx(p.x), cx(p.y), t); continue; }
+    if (p.mine) { drawPod(c, cx(p.x), cx(p.y), Math.atan2(p.vy, p.vx), t); continue; }
     if (p.nova) { const px = cx(p.x), py = cx(p.y), pulse = 1 + Math.sin(t * 20) * .25; c.fillStyle = '#ffe14d'; c.shadowColor = '#ff8a3d'; c.shadowBlur = 22; c.beginPath(); c.arc(px, py, 7 * pulse, 0, 6.3); c.fill();
       c.strokeStyle = '#ff8a3d'; c.lineWidth = 2; c.beginPath(); c.arc(px, py, 11 * pulse, 0, 6.3); c.stroke(); c.shadowBlur = 0;
       c.strokeStyle = 'rgba(255,225,77,.5)'; c.lineWidth = 3; c.beginPath(); c.moveTo(px, py); c.lineTo(cx(p.x - p.vx * 1.1), cx(p.y - p.vy * 1.1)); c.stroke(); continue; }
@@ -1892,8 +1907,8 @@ function updateHUD() {
   else if (H.crippled > 0) p = `SHIP CRIPPLED - SYSTEMS OFFLINE FOR ${H.crippled.toFixed(1)}s. YOU ARE VULNERABLE!`;
   else if (U.jm) p = 'HYPERJUMP: PRESS A NUMBER 1-9 (0 = 10) FOR THE NUMBER OF SECTORS. DIRECTION IS RANDOM - YOU MAY LAND IN ANOTHER QUADRANT. ESC CANCELS.';
   else if (H.jump) p = 'HYPERDRIVE CHARGING...';
-  else if (U.pending && U.pending.stage === 'dist') p = `MINE ${dirName(U.pending.dir)}: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY SECTORS IT TRAVELS BEFORE EXPLODING. 1 WILL BLAST YOU TOO!`;
-  else if (U.pending && U.pending.stage === 'pick') p = `MINE SELF DESTRUCT: PRESS 1 OR 2 TO CHOOSE WHICH MINE IN FLIGHT TO DETONATE (${U.proj.filter(pr => pr.mine && pr.owner === 'hero').length} IN FLIGHT).`;
+  else if (U.pending && U.pending.stage === 'dist') p = `ANTIMATTER POD ${dirName(U.pending.dir)}: PRESS A NUMBER 1-9 (0 = 10) FOR HOW MANY SECTORS IT TRAVELS BEFORE EXPLODING. 1 WILL BLAST YOU TOO!`;
+  else if (U.pending && U.pending.stage === 'pick') p = `POD SELF DESTRUCT: PRESS 1 OR 2 TO CHOOSE WHICH POD IN FLIGHT TO DETONATE (${U.proj.filter(pr => pr.mine && pr.owner === 'hero').length} IN FLIGHT).`;
   else if (U.pending && U.pending.stage === 'layCount') p = `LAY MINEFIELD: PRESS A NUMBER FOR HOW MANY TO DROP (1-${H.mines} AVAILABLE).`;
   else if (U.pending && U.pending.stage === 'layPattern') p = `LAY MINEFIELD (${U.pending.count}): PRESS S (STRAIGHT BEHIND), L (BACK-LEFT DIAGONAL), R (BACK-RIGHT DIAGONAL) OR A (ARC).`;
   else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9) TO LAUNCH ONE, OR D TO LAY A STATIC MINEFIELD INSTEAD', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
@@ -1928,7 +1943,7 @@ const INTRO_HTML = `
 </ol></div>
 <div><span class="dim">DIRECTIONS (numpad or top row)</span><br>${PAD}</div></div>
 <h3>KEYS</h3>
-<div class="keys"><span><kbd>L</kbd> Mine</span><span><kbd>J</kbd> Hyperjump</span><span><kbd>K</kbd> Self-destruct</span><span><kbd>R</kbd> Enlarge scanner</span><span><kbd>G</kbd> Anomaly guide</span><span><kbd>C</kbd> Contacts</span><span><kbd>H</kbd> Help</span><span><kbd>Space</kbd> Pause</span></div>
+<div class="keys"><span><kbd>A</kbd> Antimatter pod</span><span><kbd>L</kbd> / <kbd>M</kbd> Lay minefield</span><span><kbd>J</kbd> Hyperjump</span><span><kbd>K</kbd> Self-destruct</span><span><kbd>R</kbd> Enlarge scanner</span><span><kbd>G</kbd> Anomaly guide</span><span><kbd>C</kbd> Contacts</span><span><kbd>H</kbd> Help</span><span><kbd>Space</kbd> Pause</span></div>
 <p class="foot">Press <kbd>H</kbd> at any time for the full guide.</p>`;
 const HELP_HTML = `
 <details open><summary>THE BASICS</summary><div>
@@ -1948,14 +1963,15 @@ const HELP_HTML = `
 <ul>
 <li><kbd>P</kbd> <b>Phaser</b> + direction: fast and weaker. Up to 3 beams at once.</li>
 <li><kbd>T</kbd> <b>Torpedo</b> + direction: slow and powerful. Limited supply, 2 in flight.</li>
-<li><kbd>L</kbd> <b>Mine</b> + direction + a number 1-9 (0 = 10): travels that many sectors and explodes at the end or on hitting anything, destroying everything in its sector and the 8 around it. A distance of 1 blasts you too. 2 in flight.</li>
-<li><kbd>L</kbd> then <kbd>D</kbd> <b>Lay minefield</b>: pick how many mines (up to your stock), then a pattern &mdash; <kbd>S</kbd> straight behind, <kbd>L</kbd> / <kbd>R</kbd> diagonal, <kbd>A</kbd> a fan. They arm once you're 2 sectors clear and stay armed.</li>
-<li><kbd>B</kbd> then <kbd>1</kbd>/<kbd>2</kbd> <b>Mine self-destruct</b>: detonates a mine still in flight, right where it is.</li>
+<li><kbd>A</kbd> <b>Antimatter pod</b> + direction + a number 1-9 (0 = 10): travels that many sectors and explodes at the end or on hitting anything, destroying everything in its sector and the 8 around it. A distance of 1 blasts you too. 2 in flight.</li>
+<li><kbd>L</kbd> or <kbd>M</kbd> <b>Lay minefield</b>: pick how many mines (up to your stock), then a pattern &mdash; <kbd>S</kbd> straight behind, <kbd>L</kbd> / <kbd>R</kbd> diagonal, <kbd>A</kbd> a fan. They arm once you're 2 sectors clear and stay armed.</li>
+<li><kbd>B</kbd> then <kbd>1</kbd>/<kbd>2</kbd> <b>Pod self-destruct</b>: detonates an antimatter pod still in flight, right where it is.</li>
+<li class="dim">Pods and mines share one stock (MINES / PODS on the panel).</li>
 <li><kbd>X</kbd> <b>Disruptor</b> (level 3): a beam that pierces every ship on its line. 2 beams, more energy per shot.</li>
 <li><kbd>V</kbd> <b>Nova torpedo</b> (level 6): detonates on hitting anything and annihilates every ship within 2 sectors. You carry only 2, and they can't be restocked.</li>
 </ul>
 <p><b>Promotion:</b> each level comes at a share of the alien fleet destroyed &mdash; about 18%, 35%, 50%, 65% and 78% for levels 2 to 6.</p>
-<p>A mine or nova that hits a <b>star</b> triggers a supernova. A mine that hits a <b>planet</b> shatters it into debris; a nova obliterates it into a much bigger debris field. Debris blocks movement and shots like an asteroid, and can be blasted apart.</p>
+<p>A pod or nova that hits a <b>star</b> triggers a supernova. A pod that hits a <b>planet</b> shatters it into debris; a nova obliterates it into a much bigger debris field. Debris blocks movement and shots like an asteroid, and can be blasted apart.</p>
 </div></details>
 <details><summary>STATIONS AND THE SHIPYARD</summary><div>
 <p><b>Space stations:</b> stop next to one and press <kbd>D</kbd>. After 3 seconds your shields, hull, energy, torpedoes and mines are restored to 100% and any crippling is repaired. A station then needs 45 seconds to restock. You stay docked (weapons offline) until you press <kbd>D</kbd> again or fly away.</p>
@@ -2168,7 +2184,6 @@ addEventListener('keydown', e => {
     const m = /^(?:Digit|Numpad)([12])$/.exec(k);
     if (m) { e.preventDefault(); mineSelfDestruct(+m[1]); return; }
   }
-  if (U.pending && U.pending.cmd === 'mine' && !U.pending.stage && k === 'KeyD') { e.preventDefault(); enterMineLay(); return; }   // L then D: lay a minefield instead of launching a single mine
   if (U.pending && U.pending.stage === 'layCount') {   // lay minefield: a number key chooses how many to drop (0 = 10)
     const m = /^(?:Digit|Numpad)(\d)$/.exec(k);
     if (m) { e.preventDefault(); mineLayCount(+m[1] || 10); return; }
@@ -2179,7 +2194,8 @@ addEventListener('keydown', e => {
   }
   if (dd) { e.preventDefault(); heroDir(dd); return; }
   switch (k) {
-    case 'KeyI': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyL': cmd('mine'); break;
+    case 'KeyI': cmd('move'); break; case 'KeyP': cmd('phaser'); break; case 'KeyT': cmd('torp'); break; case 'KeyA': cmd('mine'); break;
+    case 'KeyL': case 'KeyM': cmd('minelay'); break;
     case 'KeyX': cmd('disr'); break; case 'KeyV': cmd('nova'); break; case 'KeyB': cmd('minesd'); break;
     case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
     case 'KeyD': cmd('dock'); break;
