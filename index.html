@@ -1256,7 +1256,7 @@ function shatterPlanet(q, x, y, planet, big, msg) {
 // ---- blasts: a supernova or a self-destruct hits everything in its radius with damage that falls off with distance from the epicentre
 // on a parabolic curve (100% at the centre, 0% at the edge), measured against each thing's own strength: ship hit points, a
 // station's shield, and the shatter / ignition thresholds below for planets and stars. Weapon rounds and rocks in the zone are simply destroyed.
-const blastF = (d, R) => Math.max(0, 1 - (d / R) * (d / R));   // parabolic ease: 1 at the centre, 0 at the edge (R = 6 gives 100 - 25/9 * d^2 percent)
+const blastF = (d, R) => { const x = d * 6 / R; return Math.max(0, (x * x - 68 / 3 * x + 100) / 100); };   // parabolic falloff, y = x^2 - 68/3 x + 100 (percent): 100 at the centre, 0 at x = 6 (the edge when R = 6)
 // calls cb(kind, object, x, y, damage, distance) for everything within `radius` of (bx, by)
 function blastTargets(q, bx, by, radius, peak, cb) {
   const each = (list, kind) => { for (const o of list.slice()) { const x = kind === 'proj' ? Math.round(o.x) : o.x, y = kind === 'proj' ? Math.round(o.y) : o.y, d = Math.hypot(x - bx, y - by); if (d <= radius) cb(kind, o, x, y, peak * blastF(d, radius), d); } };
