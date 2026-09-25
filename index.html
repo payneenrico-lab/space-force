@@ -218,7 +218,8 @@ const ANOM = {
   minefield: { name: 'MINEFIELD',        col: '#ff6a6a', area: 1 },
   nest:      { name: 'ALIEN NEST',       col: '#7dff7d' },
 };
-const SD_RADIUS = 4, SUPERNOVA_R = 4, SD_SPEED = 5;   // self-destruct: blast radius in sectors, and how fast the shockwave (and the cascade of explosions) spreads
+const BLAST_R = 5, SD_PEAK = 400, NOVA_PEAK = 600, SD_SPEED = 5;   // blast radius (sectors), peak damage of a self-destruct / supernova, how fast the wave spreads (sectors/s)
+const STAR_NOVA_DMG = 180, PLANET_SHATTER = 150, PLANET_OBLIT = 300;   // damage a star needs to go supernova; a planet to shatter, and to be obliterated   // self-destruct: blast radius in sectors, and how fast the shockwave (and the cascade of explosions) spreads
 const ATTACK_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const STATION_SHIELD = 400;   // 4x the hero's shield capacity
 const ANOM_KEYS = Object.keys(ANOM), anIdR = an => ANOM[an.type].idR || 3;
@@ -1240,10 +1241,10 @@ function novaBlast(q, x, y) {   // the nova torpedo: a much bigger, far deadlier
 // A planet struck by a mine (or, far worse, a nova torpedo) shatters into debris scattered across the impact sector and several
 // nearby ones. The debris behaves exactly like an asteroid field's rocks: it blocks movement and shots, and a torpedo/mine/nova
 // can blast a piece apart. A nova hit does much more damage to the planet, leaving a bigger, wider-spread debris field.
-function shatterPlanet(q, x, y, planet, big) {
+function shatterPlanet(q, x, y, planet, big, msg) {
   const i = q.planets.indexOf(planet); if (i >= 0) q.planets.splice(i, 1);
   fx(x, y, 'boom', big ? 1.6 : 1, big ? 2.4 : 1.6); sfx.big();
-  say(big ? 'THE NOVA TORPEDO OBLITERATED THE PLANET! A HUGE DEBRIS FIELD NOW LITTERS THE AREA.' : 'A PLANET WAS SHATTERED BY THE MINE! DEBRIS NOW LITTERS THE AREA.', 'bad');
+  say(msg || big ? msg || 'THE NOVA TORPEDO OBLITERATED THE PLANET! A HUGE DEBRIS FIELD NOW LITTERS THE AREA.' : 'A PLANET WAS SHATTERED BY THE MINE! DEBRIS NOW LITTERS THE AREA.', 'bad');
   const cells = [[x, y]], extra = big ? 14 : 6, maxR = big ? 4.2 : 2.4;
   for (let n = 0; n < extra; n++) {
     const ang = rnd() * 6.283, r = 1 + rnd() * maxR, nx = x + Math.round(Math.cos(ang) * r), ny = y + Math.round(Math.sin(ang) * r);
@@ -1252,21 +1253,57 @@ function shatterPlanet(q, x, y, planet, big) {
   }
   for (const [dx, dy] of cells) q.debris.push({ x: dx, y: dy, seed: ri(1000) });
 }
-// A mine that strikes a star triggers a supernova: everything within 4 sectors is destroyed, and the star itself is gone.
+// ---- blasts: a supernova or a self-destruct hits everything in its radius with damage that falls off with distance from the epicentre
+// on a hyperbolic curve (100% at the centre, 0% at the edge), measured against each thing's own strength: ship hit points, a
+// station's shield, and the shatter / ignition thresholds below for planets and stars. Weapon rounds and rocks in the zone are simply destroyed.
+const blastF = (d, R) => (1 / (1 + 3 * d / R) - .25) / .75;   // hyperbolic: 1 at the centre, easing down to 0 at the edge
+// calls cb(kind, object, x, y, damage, distance) for everything within `radius` of (bx, by)
+function blastTargets(q, bx, by, radius, peak, cb) {
+  const each = (list, kind) => { for (const o of list.slice()) { const x = kind === 'proj' ? Math.round(o.x) : o.x, y = kind === 'proj' ? Math.round(o.y) : o.y, d = Math.hypot(x - bx, y - by); if (d <= radius) cb(kind, o, x, y, peak * blastF(d, radius), d); } };
+  each(q.aliens, 'alien'); each(q.mines, 'mine'); each(U.proj, 'proj'); each(q.stars, 'star'); each(q.planets, 'planet'); each(q.stations, 'station'); each(q.debris, 'rock');
+  if (q.anom) { if (q.anom.rocks) each(q.anom.rocks, 'rock'); if (q.anom.type === 'nest') each([q.anom], 'nest'); }
+}
+// applies one blast hit; `cascade` = true while a self-destruct is playing out (the ship is gone, aliens are removed quietly, and star
+// ignitions are queued as further timed blasts rather than resolved instantly)
+function applyBlast(q, kind, o, x, y, dmg, cascade) {
+  if (kind === 'alien') {
+    if (!q.aliens.includes(o)) return;
+    if (!cascade) return damageAlien(o, dmg);
+    o.hp -= dmg;
+    if (o.hp <= 0) { q.aliens.splice(q.aliens.indexOf(o), 1); U.aliensLeft--; U.kills++; fx(x, y, 'big', .9, 1.4); sfx.boom(); } else { o.flash = .5; fx(x, y, 'boom', .5, .9); }
+  } else if (kind === 'mine') {
+    if (!q.mines.includes(o)) return;
+    if (cascade) { q.mines.splice(q.mines.indexOf(o), 1); fx(x, y, 'boom', .6, .9); } else detonate(q, o);
+  } else if (kind === 'proj') { const i = U.proj.indexOf(o); if (i >= 0) { U.proj.splice(i, 1); fx(x, y, 'boom', .6, .9); } }
+  else if (kind === 'star') {
+    if (!q.stars.includes(o)) return;
+    o.blastDmg = (o.blastDmg || 0) + dmg;
+    if (o.blastDmg < STAR_NOVA_DMG) return;   // scorched, but it holds together
+    if (cascade) {
+      q.stars.splice(q.stars.indexOf(o), 1); fx(x, y, 'big', 1.4, 3.2); sfx.novaHit(); U.shake = Math.max(U.shake, .5);
+      scheduleBlast(q, x, y, BLAST_R, NOVA_PEAK, U.cascT);
+    } else supernova(q, x, y, o);
+  } else if (kind === 'planet') {
+    if (!q.planets.includes(o)) return;
+    o.blastDmg = (o.blastDmg || 0) + dmg;
+    if (o.blastDmg >= PLANET_OBLIT) shatterPlanet(q, x, y, o, true, 'A PLANET WAS OBLITERATED BY THE BLAST! A HUGE DEBRIS FIELD NOW LITTERS THE AREA.');
+    else if (o.blastDmg >= PLANET_SHATTER) shatterPlanet(q, x, y, o, false, 'A PLANET WAS SHATTERED BY THE BLAST! DEBRIS NOW LITTERS THE AREA.');
+  } else if (kind === 'station') {
+    if (!q.stations.includes(o)) return;
+    o.shield -= dmg; o.flash = .4; o.regenT = 4;
+    if (o.shield <= 0) destroyStation(q, o); else fx(x, y, 'boom', .5, 1);
+  } else if (kind === 'rock') destroyRock(q, o);
+  else if (kind === 'nest') damageNest(q, dmg);
+}
+// A star goes supernova (a mine or nova torpedo hits it, or a blast reaches it with enough damage): the star is gone and it blasts
+// everything within BLAST_R sectors, the hero included, with damage falling off with distance.
 function supernova(q, x, y, star) {
   const i = q.stars.indexOf(star); if (i >= 0) q.stars.splice(i, 1);
   fx(x, y, 'big', 2, 4.5); sfx.novaHit(); U.shake = 1.4;
-  say(`SUPERNOVA! A STAR HAS GONE NOVA AT SECTOR ${x + 1},${y + 1} - DEVASTATION FOR 4 SECTORS AROUND!`, 'bad');
-  for (const a of q.aliens.slice()) if (cheb(a.x, a.y, x, y) <= 4) killAlien(a);
-  for (const s of q.stations.slice()) if (cheb(s.x, s.y, x, y) <= 4) hitStation(s, 500);
-  for (const rk of q.debris.slice()) if (cheb(rk.x, rk.y, x, y) <= 4) destroyRock(q, rk);
-  for (const pl of q.planets.slice()) if (cheb(pl.x, pl.y, x, y) <= 4) shatterPlanet(q, pl.x, pl.y, pl);
-  if (q.anom) {
-    if (q.anom.rocks) for (const rk of q.anom.rocks.slice()) if (cheb(rk.x, rk.y, x, y) <= 4) destroyRock(q, rk);
-    if (q.anom.type === 'nest' && cheb(q.anom.x, q.anom.y, x, y) <= 4) damageNest(q, 500);
-  }
-  if (q === curQ() && cheb(H.x, H.y, x, y) <= 4) { say('CAUGHT IN THE SUPERNOVA!', 'bad'); hitHero(320); }
-  for (const o of q.mines.slice()) if (cheb(o.x, o.y, x, y) <= 4) detonate(q, o);
+  say(`SUPERNOVA! A STAR HAS GONE NOVA AT SECTOR ${x + 1},${y + 1} - DEVASTATION FOR ${BLAST_R} SECTORS AROUND!`, 'bad');
+  blastTargets(q, x, y, BLAST_R, NOVA_PEAK, (kind, o, ex, ey, dmg) => applyBlast(q, kind, o, ex, ey, dmg, false));
+  const hd = Math.hypot(H.x - x, H.y - y);
+  if (q === curQ() && hd <= BLAST_R && !U.dying) { say('CAUGHT IN THE SUPERNOVA!', 'bad'); hitHero(NOVA_PEAK * blastF(hd, BLAST_R)); }
   q.pendingRemnants.push({ x, y, t: 2.4 });   // once the blast has died down, the wreckage condenses into a radiation cloud
 }
 // Routes a mine's impact to the right outcome: a supernova (star), shattering (planet), or an ordinary blast.
@@ -1442,47 +1479,27 @@ function doSelfDestruct() {
   const q = curQ(); U.sd = null; sfx.big();
   U.dying = true; H.moving = false; H.hull = 0; engineOff(); H.docking = null; H.jump = null; U.pending = null; U.jm = null; U.shake = .8;
   for (let i = 0; i < 6; i++) fx(H.x + (rnd() - .5) * 2.5, H.y + (rnd() - .5) * 2.5, 'big', .9 + rnd() * .5, 1.4);
-  // Everything within SD_RADIUS sectors is destroyed, but not all at once: a shockwave races outward and each object goes up as the
-  // wave front reaches it, so the blast reads as a cascade of explosions rippling out from the ship. Any star caught in it goes
-  // supernova, which sends out a further blast of its own (see runCascade), so the chain can spread past the original radius. The
+  // Everything within BLAST_R sectors is hit, but not all at once: a shockwave races outward and each object is hit as the wave
+  // front reaches it, so the blast reads as a cascade of explosions rippling out from the ship. A star that takes enough damage goes
+  // supernova, which sends out a further blast of its own (see applyBlast), so the chain can spread past the original radius. The
   // run ends once the last explosion has gone off, and only then is it decided whether the aliens were all destroyed (see finishRun).
-  U.cascade = []; U.cascT = 0; U.cascSeen = new Set();
-  scheduleBlast(q, H.x, H.y, SD_RADIUS, 0);
-  say(`SELF-DESTRUCT! A CHAIN OF EXPLOSIONS RIPS OUTWARD FOR ${SD_RADIUS} SECTORS...`, 'bad');
+  U.cascade = []; U.cascT = 0;
+  scheduleBlast(q, H.x, H.y, BLAST_R, SD_PEAK, 0);
+  say(`SELF-DESTRUCT! A CHAIN OF EXPLOSIONS RIPS OUTWARD FOR ${BLAST_R} SECTORS...`, 'bad');
   U.posthMsg = 'THE SFS HOPE GAVE EVERYTHING TO DESTROY THE LAST OF THE ALIENS. THE GALAXY IS SAFE, AND ITS PILOT IS HONOURED POSTHUMOUSLY.';
   U.loseMsg = () => `THE SFS HOPE WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`;
   U.endT = 1.3; U.pendingEnd = [false, '', true];
 }
-// Queues an explosion for everything within `radius` of (bx, by) that isn't already queued, each timed to when the wave front reaches it.
-function scheduleBlast(q, bx, by, radius, t0) {
-  const add = (x, y, kind, o) => {
-    const d = Math.hypot(x - bx, y - by); if (d > radius || U.cascSeen.has(o)) return;
-    U.cascSeen.add(o); U.cascade.push({ t: t0 + d / SD_SPEED + rnd() * .06, kind, o, x, y });
-  };
-  for (const a of q.aliens) add(a.x, a.y, 'alien', a);
-  for (const m of q.mines) add(m.x, m.y, 'mine', m);
-  for (const p of U.proj) add(Math.round(p.x), Math.round(p.y), 'proj', p);
-  for (const s of q.stars) add(s.x, s.y, 'star', s);
-  for (const p of q.planets) add(p.x, p.y, 'planet', p);
-  for (const s of q.stations) add(s.x, s.y, 'station', s);
-  for (const r of q.debris) add(r.x, r.y, 'rock', r);
-  if (q.anom) { if (q.anom.rocks) for (const r of q.anom.rocks) add(r.x, r.y, 'rock', r); if (q.anom.type === 'nest') add(q.anom.x, q.anom.y, 'nest', q.anom); }
+// Queues the blast's hits on everything within `radius` of (bx, by), each timed to when the expanding wave front reaches it. A thing
+// caught by several blasts is queued once per blast, so their damage adds up.
+function scheduleBlast(q, bx, by, radius, peak, t0) {
+  blastTargets(q, bx, by, radius, peak, (kind, o, x, y, dmg, d) => U.cascade.push({ t: t0 + d / SD_SPEED + rnd() * .06, kind, o, x, y, dmg }));
   U.cascade.sort((a, b) => a.t - b.t);
   fx(bx, by, 'wave', radius / SD_SPEED, radius);
 }
 function runCascade(dt) {
   const q = curQ(); U.cascT += dt;
-  while (U.cascade.length && U.cascade[0].t <= U.cascT) {
-    const e = U.cascade.shift(), o = e.o;
-    if (e.kind === 'alien') { const i = q.aliens.indexOf(o); if (i >= 0) { q.aliens.splice(i, 1); U.aliensLeft--; U.kills++; fx(e.x, e.y, 'big', .9, 1.4); sfx.boom(); } }
-    else if (e.kind === 'mine') { const i = q.mines.indexOf(o); if (i >= 0) { q.mines.splice(i, 1); fx(e.x, e.y, 'boom', .6, .9); } }
-    else if (e.kind === 'proj') { const i = U.proj.indexOf(o); if (i >= 0) { U.proj.splice(i, 1); fx(e.x, e.y, 'boom', .6, .9); } }
-    else if (e.kind === 'star') { const i = q.stars.indexOf(o); if (i >= 0) { q.stars.splice(i, 1); fx(e.x, e.y, 'big', 1.4, 3.2); sfx.novaHit(); U.shake = Math.max(U.shake, .5); scheduleBlast(q, e.x, e.y, SUPERNOVA_R, U.cascT); } }
-    else if (e.kind === 'planet') { const i = q.planets.indexOf(o); if (i >= 0) { q.planets.splice(i, 1); fx(e.x, e.y, 'big', 1.2, 2.4); sfx.big(); } }
-    else if (e.kind === 'station') { if (q.stations.includes(o)) destroyStation(q, o); }
-    else if (e.kind === 'rock') destroyRock(q, o);
-    else if (e.kind === 'nest') damageNest(q, 9999);
-  }
+  while (U.cascade.length && U.cascade[0].t <= U.cascT) { const e = U.cascade.shift(); applyBlast(q, e.kind, e.o, e.x, e.y, e.dmg, true); }
 }
 
 // ================================================================ drawing: sprites
@@ -1837,7 +1854,7 @@ Alien minelayers still drop static mines that sit in space until something touch
 LAY MINEFIELD: press L then D (for "drop"), a number for how many to lay (capped at your mine stock, max 6), then S/L/R/A for the pattern - S lays them in a straight line behind you, L and R lay them diagonally back-left or back-right, and A fans them out across a wider arc behind you. Unlike a launched mine these don't travel and don't need tracking - they're planted right where you drop them (amber, same housing as a launched mine - dark and still while unarmed, blinking once it's live) and only ever go off if something else touches them. They arm once you're 2 sectors clear and stay armed after that, even if you come back. Comes out of the same mine stock as the launched kind. If the sectors behind you already hold one of your own mines, it's shifted further back to make room; anything else in the way (a star, an alien, an enemy mine...) cancels the whole lay with a warning.
 MINE SELF DESTRUCT (B), then 1 or 2: remotely detonates one of your mines already in flight, right where it currently is - including triggering a supernova or shattering a planet if that's what it's sitting over. Only works on a mine still travelling - a laid mine has to be triggered the normal way.
 HYPERJUMP (J) + a number 1-9 (0 = 10): jumps that many sectors in a RANDOM direction after a 2 second spool-up. You may end up in another quadrant. Costs more energy the further you jump.
-SELF DESTRUCT (K): a LAST RESORT weapon. 5 second countdown, then everything within 4 sectors is destroyed - including you: alien ships, torpedoes, mines, planets, stars, stations and debris. The blast spreads outward as a cascade of explosions, and any star caught in it goes supernova, starting a further blast of its own that can carry the chain farther. The game ends once the last explosion has gone off (ships and weapons out of reach survive). Press K again to cancel.
+SELF DESTRUCT (K): a LAST RESORT weapon. 5 second countdown, then a blast destroys you and hits everything within 5 sectors, spreading outward as a cascade of explosions. Damage is greatest at the ship and falls away steeply to nothing at the edge, so tough targets (battleships, stations) can survive if far enough out. Torpedoes, mines and rocks in the zone are destroyed; planets shatter if hit hard enough; a star hit hard enough goes supernova, starting a further blast of its own that can carry the chain farther. The game ends once the last explosion has gone off. Press K again to cancel.
 SPACE pauses. Weapons work while moving.
 
 DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines.
