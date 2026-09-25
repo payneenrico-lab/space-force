@@ -1918,7 +1918,7 @@ $('sr').addEventListener('pointerdown', e => {
   if (!U || U.over) return;
   const r = $('sr').getBoundingClientRect(), wx = (e.clientX - r.left) / r.width * VIEW + U.cam.x, wy = (e.clientY - r.top) / r.height * VIEW + U.cam.y;
   const hx = H.moving ? H.px + (H.x - H.px) * Math.max(0, Math.min(1, 1 - H.stepT / STEP)) : H.x, hy = H.moving ? H.py + (H.y - H.py) * Math.max(0, Math.min(1, 1 - H.stepT / STEP)) : H.y;
-  toggleShipInfo(Math.hypot(wx - (hx + .5), wy - (hy + .5)) <= .9);
+  toggleShipInfo(Math.hypot(wx - (hx + .5), wy - (hy + .5)) <= .9 ? undefined : false);
 });
 document.addEventListener('keydown', e => { if (e.code === 'Escape') toggleShipInfo(false); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && U && !U.over && !U.paused) { U.paused = true; engineOff(); } });
