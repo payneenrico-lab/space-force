@@ -526,11 +526,21 @@ function engage(d) {
   while (dist > 1 && driveCost(dist) > H.energy) dist--;
   const cost = driveCost(dist);
   if (!energyUse(cost)) return;   // not even 1 sector is affordable
-  H.dir = d; H.moving = true; H.remaining = dist; H.total = dist; H.cost = cost; H.stepDur = stepDur(); H.stepT = H.stepDur; H.px = H.x; H.py = H.y; engineOn();
+  H.dir = d; H.moving = true; H.remaining = dist; H.total = dist; H.cost = cost; H.glideT = 0; H.stepDur = stepDur(); H.stepT = H.stepDur; H.px = H.x; H.py = H.y; engineOn();
   say(dist < H.dist ? `ION DRIVE ENGAGED: ONLY ${dist} SECTOR${dist > 1 ? 'S' : ''} AFFORDABLE (WANTED ${H.dist}) ${dirName(d)}. ENERGY -${cost}.` : `ION DRIVE ENGAGED: ${dist} SECTORS ${dirName(d)}. ENERGY -${cost}.`);
 }
 // seconds until the ship's next hop into a new sector, from how far it has come and how far it has left (whichever is nearer sets the speed)
+const stepDur0 = () => 2 / Math.sqrt(2 * ACCEL * .5);   // stopping from the slowest hop speed (v = sqrt(2*ACCEL*.5)) over one sector at constant deceleration takes twice a hop
 function stepDur() { const x = Math.min(H.total - H.remaining + .5, H.remaining - .5); return 1 / Math.min(VMAX, Math.sqrt(2 * ACCEL * Math.max(.25, x))); }
+// where the ship is DRAWN: it trails one hop behind its logical sector, gliding across each hop; after arriving it keeps gliding
+// (eased out) through the last hop instead of snapping onto the final sector
+function heroRenderPos() {
+  let f = 1;
+  if (H.moving) f = Math.max(0, Math.min(1, 1 - H.stepT / (H.stepDur || STEP)));
+  else if (H.glideT > 0) { const u = 1 - H.glideT / H.glideDur; f = 1 - (1 - u) * (1 - u); }
+  else return [H.x, H.y];
+  return [H.px + (H.x - H.px) * f, H.py + (H.y - H.py) * f];
+}
 function stopShip(msg) {
   if (!H.moving) { if (msg) say('SHIP IS ALREADY STATIONARY.'); return; }
   const refund = Math.round(H.cost * H.remaining / Math.max(1, H.total));
@@ -859,7 +869,7 @@ function heroMoveStep() {
   if (sameQ) { H.px = H.x; H.py = H.y; } else { H.px = nx; H.py = ny; }
   H.x = nx; H.y = ny; H.remaining--;
   checkSector();
-  if (H.remaining <= 0 && H.moving) { H.moving = false; engineOff(); say('DESTINATION REACHED.'); }
+  if (H.remaining <= 0 && H.moving) { H.moving = false; engineOff(); say('DESTINATION REACHED.'); if (sameQ) { H.glideDur = H.glideT = stepDur0(); } }
 }
 // Continuously scans up to 10 sectors ahead along the current heading so the computer can warn of an imminent collision sooner.
 function scanCollisionAhead(dt) {
@@ -908,6 +918,7 @@ function update(dt) {
   }
   // hero motion
   scanCollisionAhead(dt);
+  if (H.glideT > 0) H.glideT -= dt;
   if (H.moving) { H.stepT -= dt * tsAt(H.x, H.y) * (1 + H.holeBoost * .6); while (H.stepT <= 0 && H.moving) { heroMoveStep(); if (U.dying) return; if (H.moving) { H.stepDur = stepDur(); H.stepT += H.stepDur; } } }
   if (H.jump && (H.jump.t -= dt) <= 0) finishJump();
   if (H.docking && !H.docking.done && (H.docking.t -= dt) <= 0) finishDock();
@@ -1449,8 +1460,7 @@ function drawSR(t) {
   // the hero's rendered position eases from the sector it just left to the one it's arriving at over the course of each
   // movement step, instead of jumping straight there - the same in-between-cell technique the black hole flyby swing uses.
   // Only while actually moving within the same quadrant (H.px/H.py get snapped to match on a quadrant change or when stopped).
-  const stepF = H.moving ? Math.max(0, Math.min(1, 1 - H.stepT / (H.stepDur || STEP))) : 1;
-  const rhx = H.moving ? H.px + (H.x - H.px) * stepF : H.x, rhy = H.moving ? H.py + (H.y - H.py) * stepF : H.y;
+  const [rhx, rhy] = heroRenderPos();
   // camera follows the hero inside the 32x32 quadrant; everything below is drawn in world coordinates
   const tcx = Math.max(0, Math.min(SN - VIEW, rhx + .5 - VIEW / 2)), tcy = Math.max(0, Math.min(SN - VIEW, rhy + .5 - VIEW / 2));
   if (!U.cam) U.cam = { x: tcx, y: tcy }; const cam = U.cam; cam.x += (tcx - cam.x) * .2; cam.y += (tcy - cam.y) * .2;
@@ -1924,8 +1934,7 @@ $('shipInfo').onclick = () => toggleShipInfo(false);
 $('sr').addEventListener('pointerdown', e => {
   if (!U || U.over) return;
   const r = $('sr').getBoundingClientRect(), wx = (e.clientX - r.left) / r.width * VIEW + U.cam.x, wy = (e.clientY - r.top) / r.height * VIEW + U.cam.y;
-  const sf = H.moving ? Math.max(0, Math.min(1, 1 - H.stepT / (H.stepDur || STEP))) : 1;
-  const hx = H.moving ? H.px + (H.x - H.px) * sf : H.x, hy = H.moving ? H.py + (H.y - H.py) * sf : H.y;
+  const [hx, hy] = heroRenderPos();
   toggleShipInfo(Math.hypot(wx - (hx + .5), wy - (hy + .5)) <= .9 ? undefined : false);
 });
 document.addEventListener('keydown', e => { if (e.code === 'Escape') toggleShipInfo(false); });
