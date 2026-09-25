@@ -1117,8 +1117,17 @@ function updateRemnants(q, dt) {
     if (r.t <= 0) {
       q.pendingRemnants.splice(i, 1);
       if (!occupied(q, r.x, r.y)) {
-        q.remnants.push({ x: r.x, y: r.y, type: 'radiat', known: true });
-        if (q === curQ()) { fx(r.x, r.y, 'spark', .6, 1); sfx.ping(); say('THE STELLAR WRECKAGE HAS CONDENSED INTO A RADIATION CLOUD.', 'warn'); }
+        // what a dead star leaves behind: a flat roll - 60% radiation cloud, 25% black hole, 15% nothing at all. A quadrant only holds
+        // one anomaly (and a black hole never forms right on top of the hero), so a black hole roll that can't happen becomes a cloud.
+        const roll = rnd(), canHole = !q.anom && !(q === curQ() && cheb(H.x, H.y, r.x, r.y) <= 2);
+        if (roll >= .85) continue;
+        if (roll < .25 && canHole) {
+          q.anom = { x: r.x, y: r.y, type: 'hole', known: true, t: 1.3 };
+          if (q === curQ()) { fx(r.x, r.y, 'big', 1.2, 2); sfx.alert(); say('THE STAR HAS COLLAPSED INTO A BLACK HOLE!', 'bad'); }
+        } else {
+          q.remnants.push({ x: r.x, y: r.y, type: 'radiat', known: true });
+          if (q === curQ()) { fx(r.x, r.y, 'spark', .6, 1); sfx.ping(); say('THE STELLAR WRECKAGE HAS CONDENSED INTO A RADIATION CLOUD.', 'warn'); }
+        }
       }
     }
   }
