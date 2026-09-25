@@ -974,7 +974,15 @@ function heroMoveStep() {
   if (b && b.t !== 'hero') {
     if (b.t === 'nest') { damageNest(tq, 60); explodeHero('THE SFS HOPE RAMMED THE ALIEN NEST AT FULL SPEED AND WAS DESTROYED.'); return; }
     if (b.t === 'station') { hitStation(b.o, 60); explodeHero('THE SFS HOPE RAMMED THE SPACE STATION AT FULL SPEED AND WAS DESTROYED.'); return; }
-    if (b.t === 'star' || b.t === 'planet' || b.t === 'rock') { explodeHero(`THE SFS HOPE RAMMED ${COLL_LABEL[b.t]} AT FULL SPEED AND WAS DESTROYED.`); return; }
+    if (b.t === 'star') {   // ramming a star is a direct hit: it goes supernova, and the blast plays out as a cascade like a self-destruct's
+      explodeHero(`THE SFS HOPE RAMMED ${COLL_LABEL.star} AT FULL SPEED AND WAS DESTROYED.`);
+      U.cascQ = tq; U.cascade = []; U.cascT = 0;
+      tq.stars.splice(tq.stars.indexOf(b.o), 1); fx(b.o.x, b.o.y, 'big', 1.6, 3.6); sfx.novaHit(); U.shake = 1.2;
+      scheduleBlast(tq, b.o.x, b.o.y, BLAST_R, NOVA_PEAK, 0);
+      say('THE STAR HAS GONE SUPERNOVA!', 'bad');
+      return;
+    }
+    if (b.t === 'planet' || b.t === 'rock') { explodeHero(`THE SFS HOPE RAMMED ${COLL_LABEL[b.t]} AT FULL SPEED AND WAS DESTROYED.`); return; }
     if (b.t === 'alien') {
       const dmg = collisionDamage();   // the impact hits both ships equally hard
       damageAlien(b.o, dmg);
@@ -1497,7 +1505,7 @@ function updateAlien(a, dt) {
   }
 }
 function doSelfDestruct() {
-  const q = curQ(); U.sd = null; sfx.big();
+  const q = curQ(); U.sd = null; U.cascQ = q; sfx.big();
   U.dying = true; H.moving = false; H.hull = 0; engineOff(); H.docking = null; H.jump = null; U.pending = null; U.jm = null; U.shake = .8;
   for (let i = 0; i < 6; i++) fx(H.x + (rnd() - .5) * 2.5, H.y + (rnd() - .5) * 2.5, 'big', .9 + rnd() * .5, 1.4);
   // Everything within BLAST_R sectors is hit, but not all at once: a shockwave races outward and each object is hit as the wave
@@ -1519,7 +1527,7 @@ function scheduleBlast(q, bx, by, radius, peak, t0) {
   fx(bx, by, 'wave', radius / SD_SPEED, radius);
 }
 function runCascade(dt) {
-  const q = curQ(); U.cascT += dt;
+  const q = U.cascQ || curQ(); U.cascT += dt;
   while (U.cascade.length && U.cascade[0].t <= U.cascT) { const e = U.cascade.shift(); applyBlast(q, e.kind, e.o, e.x, e.y, e.dmg, true); }
 }
 
