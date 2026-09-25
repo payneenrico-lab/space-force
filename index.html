@@ -1442,7 +1442,7 @@ function doSelfDestruct() {
   U.dying = true; H.moving = false; H.hull = 0; engineOff(); H.docking = null; H.jump = null; U.pending = null; U.jm = null; U.shake = .8;
   for (let i = 0; i < 8; i++) fx(H.x + (rnd() - .5) * 8, H.y + (rnd() - .5) * 8, 'big', 1.2, 2);
   for (const a of q.aliens.slice()) { q.aliens.splice(q.aliens.indexOf(a), 1); U.aliensLeft--; U.kills++; fx(a.x, a.y, 'big', 1.2, 1.5); }
-  q.mines = [];
+  q.mines = []; U.proj = [];   // torpedoes, launched mines and novas in flight go up with everything else
   say('SELF-DESTRUCT COMPLETE. THE QUADRANT IS DESTROYED.', 'bad');
   U.posthMsg = 'THE SFS HOPE GAVE EVERYTHING TO DESTROY THE LAST OF THE ALIENS. THE GALAXY IS SAFE, AND ITS PILOT IS HONOURED POSTHUMOUSLY.';
   U.endT = 1.3; U.pendingEnd = [U.aliensLeft === 0, U.aliensLeft === 0 ? 'THE SFS HOPE GAVE EVERYTHING TO DESTROY THE LAST OF THE ALIENS. THE GALAXY IS SAFE, AND ITS PILOT IS HONOURED POSTHUMOUSLY.' : `THE SFS HOPE WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`, true];
