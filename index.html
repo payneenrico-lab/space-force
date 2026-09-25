@@ -1443,6 +1443,16 @@ function findPath(q, sx, sy, tx, ty, pref) {
   path.reverse();
   return path.length ? path.slice(0, 30) : null;
 }
+// An alien ship entering a wormhole is carried to a random free sector in a different, random quadrant - it stays in the fight
+// (and still counts toward the aliens left) but is now somewhere else in the galaxy.
+function alienWormhole(q, a) {
+  let qx, qy; do { qx = ri(GN); qy = ri(GN); } while (Q(qx, qy) === q);
+  const dest = Q(qx, qy), p = freeCell(dest);
+  q.aliens.splice(q.aliens.indexOf(a), 1);
+  fx(a.x, a.y, 'jump', .6, 1); sfx.jumpGo();
+  a.x = p.x; a.y = p.y; a.path = null; a.tgt = null; a.charge = null; a.stepT = 1 + rnd(); dest.aliens.push(a);
+  say('AN ALIEN SHIP ESCAPED THROUGH THE WORMHOLE!', 'warn');
+}
 function updateAlien(a, dt) {
   const q = curQ(), T = ATYPES[a.type], grace = U.grace > 0;
   a.flash = Math.max(0, a.flash - dt); a.pcd -= dt; a.tcd -= dt; a.mcd -= dt; a.stepT -= dt; a.cloakT -= dt;
@@ -1490,7 +1500,18 @@ function updateAlien(a, dt) {
   if (a.stepT <= 0) {
     a.stepT = T.step * (.85 + rnd() * .3);
     const curD = Math.max(Math.abs(tx - a.x), Math.abs(ty - a.y));
-    if (a.path && a.path.length) {
+    // a badly hurt ship runs for a wormhole, if there is one in the quadrant, and slips through it to safety (see alienWormhole)
+    let fled = false; const worm = q.anom && q.anom.type === 'worm' ? q.anom : null;
+    if (worm && a.hp < T.hp * .4) {
+      const sx = Math.sign(worm.x - a.x), sy = Math.sign(worm.y - a.y);
+      for (const [ox, oy] of [[sx, sy], [sx, 0], [0, sy]]) {
+        const nx = a.x + ox, ny = a.y + oy; if ((!ox && !oy) || nx < 0 || ny < 0 || nx >= SN || ny >= SN || blockerAt(q, nx, ny) || q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny)) continue;
+        a.x = nx; a.y = ny; a.path = null; fled = true;
+        const m = q.mines.find(m => m.owner === 'hero' && m.x === a.x && m.y === a.y && m.arm <= 0); if (m) { detonate(q, m); return; }
+        break;
+      }
+    }
+    if (!fled && a.path && a.path.length) {
       const [nx, ny] = a.path[0];
       const mined = q.mines.some(m => m.owner === 'hero' && m.arm <= 0 && m.x === nx && m.y === ny);
       if (nx >= 0 && ny >= 0 && nx < SN && ny < SN && !blockerAt(q, nx, ny) && !q.mines.some(m => m.owner === 'alien' && m.x === nx && m.y === ny) && !(mined && rnd() < .7)) {
@@ -1498,7 +1519,7 @@ function updateAlien(a, dt) {
         const m = q.mines.find(m => m.owner === 'hero' && m.x === a.x && m.y === a.y && m.arm <= 0); if (m) { detonate(q, m); return; }
       } else a.path = null;   // something moved into the planned cell (or it thought better of the mine) - drop the stale route and re-plan
     }
-    if (!a.path || !a.path.length) {
+    if (!fled && (!a.path || !a.path.length)) {
       let best = null, bs = -1e9;
       for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
         const nx = a.x + ox, ny = a.y + oy; if (nx < 0 || ny < 0 || nx >= SN || ny >= SN) continue;
@@ -1518,6 +1539,7 @@ function updateAlien(a, dt) {
       if (a.stuckN >= 3) { a.path = findPath(q, a.x, a.y, tx, ty, T.pref); a.stuckN = 0; }
     }
   }
+  if (q.anom && q.anom.type === 'worm' && a.x === q.anom.x && a.y === q.anom.y) return alienWormhole(q, a);   // any ship that ends up on a wormhole goes through it
   // mines
   if (T.mine && a.mcd <= 0 && !grace && q.mines.filter(m => m.owner === 'alien').length < 8 && !q.mines.some(m => m.x === a.x && m.y === a.y)) { q.mines.push({ x: a.x, y: a.y, owner: 'alien', arm: 2 }); a.mcd = 9 + rnd() * 6; }
   // firing
@@ -1950,7 +1972,7 @@ const HELP_HTML = `
 <li><span class="tag">HAZARD</span><b>Asteroid field</b>: rocks block movement and phasers; torpedoes blast them apart.</li>
 <li><span class="tag">HAZARD</span><b>Minefield</b>: hidden mines, seen only within 3 sectors.</li>
 <li><span class="tag">HAZARD</span><b>Alien nest</b> keeps spawning aliens until destroyed with phasers or torpedoes.</li>
-<li><span class="tag">VOLATILE</span><b>Wormhole</b> teleports you to a random place.</li>
+<li><span class="tag">VOLATILE</span><b>Wormhole</b> teleports you to a random place. Aliens use it too: a badly hurt one runs for it to escape to another quadrant.</li>
 <li><span class="tag">VOLATILE</span><b>Time distortion</b> slows or speeds everything inside, flipping every few seconds. It is strongest at the centre, and your energy and shield regeneration follow it.</li>
 <li><span class="tag">VOLATILE</span><b>Radiation cloud</b> triggers one random effect: a scrambled jump, an energy or shield drain or surge, restored shields, cripple (up to 12 seconds, no drive, weapons or shields) or nothing. Weapons entering it may explode, deflect or pass through, even back at you.</li>
 <li><span class="tag">RESOURCE</span><b>Supply depot</b> restocks you once.</li>
@@ -1981,7 +2003,7 @@ function showHelp() { if (U) U.paused = true; engineOff(); showOverlay('FLIGHT M
 const GUIDE = [
   { id: 'storm', tag: 'hazard', desc: 'Knocks 45% off your shields on contact. Lingers as a standing hazard.' },
   { id: 'radiat', tag: 'volatile', desc: 'Triggers one of 7 random effects on your ship. Weapons entering it may explode, deflect or pass through.' },
-  { id: 'worm', tag: 'volatile', desc: 'Teleports you to a random sector in a random quadrant. No damage.' },
+  { id: 'worm', tag: 'volatile', desc: 'Teleports you to a random sector in a random quadrant. No damage. Aliens use it too - a badly hurt one will run for it to escape.' },
   { id: 'depot', tag: 'resource', desc: 'Restores +4 torpedoes, +3 mines, +800 energy and +30 hull (each capped at your max), and tops shields up to 100%, instantly on contact. One use.' },
   { id: 'hole', tag: 'hazard', desc: 'Drags in anything sitting still within 3 sectors, aliens included. A ship under power passing nearby gets deflected instead, more sharply the closer the pass - a wide 3-sector graze barely curves at all. Speed builds up while inside the field, peaks the instant it leaves, then eases back to normal over the rest of the trip, a few sectors further than commanded and free of charge, both scaled the same way. Flying straight into the centre is still fatal either way.' },
   { id: 'nebula', tag: 'mixed', desc: 'Hides aliens from you beyond 2 sectors, and hides you from them beyond 3.' },
