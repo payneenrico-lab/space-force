@@ -195,6 +195,9 @@ c.setTransform(2, 0, 0, 2, 0, 0); g.setTransform(2, 0, 0, 2, 0, 0);
 const rnd = Math.random, ri = n => rnd() * n | 0, cheb = (a, b, c2, d) => Math.max(Math.abs(a - c2), Math.abs(b - d));
 const VEC = { 7: [-1, -1], 8: [0, -1], 9: [1, -1], 4: [-1, 0], 6: [1, 0], 1: [-1, 1], 2: [0, 1], 3: [1, 1] };
 const MAXE = 2000, STEP = 0.22, MINE_ARM_DIST = 2;
+// zero-g flight: the ion drive accelerates at ACCEL sectors/s^2 from a standstill until the trip's midpoint, then decelerates the same way
+// (capped at VMAX on long trips, so the ship cruises through the middle instead of getting unmanageably fast)
+const ACCEL = 4, VMAX = 5.5;
 const ATYPES = {
   scout:      { name: 'SCOUT',        hp: 40,  step: .55, pref: 4, ph: 8,  pcd: 2.2, torp: 0, mine: 0, cloak: 0, col: '#7dff7d' },
   raider:     { name: 'RAIDER',       hp: 80,  step: .9,  pref: 5, ph: 10, pcd: 2.6, torp: 0, mine: 1, cloak: 0, col: '#ffb347' },
@@ -523,9 +526,11 @@ function engage(d) {
   while (dist > 1 && driveCost(dist) > H.energy) dist--;
   const cost = driveCost(dist);
   if (!energyUse(cost)) return;   // not even 1 sector is affordable
-  H.dir = d; H.moving = true; H.remaining = dist; H.total = dist; H.cost = cost; H.stepT = STEP; H.px = H.x; H.py = H.y; engineOn();
+  H.dir = d; H.moving = true; H.remaining = dist; H.total = dist; H.cost = cost; H.stepDur = stepDur(); H.stepT = H.stepDur; H.px = H.x; H.py = H.y; engineOn();
   say(dist < H.dist ? `ION DRIVE ENGAGED: ONLY ${dist} SECTOR${dist > 1 ? 'S' : ''} AFFORDABLE (WANTED ${H.dist}) ${dirName(d)}. ENERGY -${cost}.` : `ION DRIVE ENGAGED: ${dist} SECTORS ${dirName(d)}. ENERGY -${cost}.`);
 }
+// seconds until the ship's next hop into a new sector, from how far it has come and how far it has left (whichever is nearer sets the speed)
+function stepDur() { const x = Math.min(H.total - H.remaining + .5, H.remaining - .5); return 1 / Math.min(VMAX, Math.sqrt(2 * ACCEL * Math.max(.25, x))); }
 function stopShip(msg) {
   if (!H.moving) { if (msg) say('SHIP IS ALREADY STATIONARY.'); return; }
   const refund = Math.round(H.cost * H.remaining / Math.max(1, H.total));
@@ -903,7 +908,7 @@ function update(dt) {
   }
   // hero motion
   scanCollisionAhead(dt);
-  if (H.moving) { H.stepT -= dt * tsAt(H.x, H.y) * (1 + H.holeBoost * .6); while (H.stepT <= 0 && H.moving) { H.stepT += STEP; heroMoveStep(); if (U.dying) return; } }
+  if (H.moving) { H.stepT -= dt * tsAt(H.x, H.y) * (1 + H.holeBoost * .6); while (H.stepT <= 0 && H.moving) { heroMoveStep(); if (U.dying) return; if (H.moving) { H.stepDur = stepDur(); H.stepT += H.stepDur; } } }
   if (H.jump && (H.jump.t -= dt) <= 0) finishJump();
   if (H.docking && !H.docking.done && (H.docking.t -= dt) <= 0) finishDock();
   if (U.sd) {
@@ -933,8 +938,10 @@ function update(dt) {
 function inNebula(q, x, y) { const an = q.anom; return !!an && an.type === 'nebula' && cheb(x, y, an.x, an.y) <= 4; }
 function alienHidden(q, a) { return inNebula(q, a.x, a.y) && cheb(a.x, a.y, H.x, H.y) > 2; }   // ships deep inside a nebula are invisible to your sensors
 function tsAt(x, y) {   // time distortion: things inside the field run slow or fast
-  const an = curQ().anom; if (!an || an.type !== 'timewarp' || cheb(x, y, an.x, an.y) > 4) return 1;
-  return an.mode === 'slow' ? .5 : 1.8;
+  const an = curQ().anom; if (!an || an.type !== 'timewarp') return 1;
+  const d = cheb(x, y, an.x, an.y); if (d > 4) return 1;
+  const k = 1 - d / 5;   // strength grows toward the centre: 20% at the rim, 100% dead centre
+  return an.mode === 'slow' ? 1 - .5 * k : 1 + .8 * k;
 }
 function damageNest(q, d) {
   const n = q.anom; if (!n || n.type !== 'nest') return;
@@ -1442,7 +1449,7 @@ function drawSR(t) {
   // the hero's rendered position eases from the sector it just left to the one it's arriving at over the course of each
   // movement step, instead of jumping straight there - the same in-between-cell technique the black hole flyby swing uses.
   // Only while actually moving within the same quadrant (H.px/H.py get snapped to match on a quadrant change or when stopped).
-  const stepF = H.moving ? Math.max(0, Math.min(1, 1 - H.stepT / STEP)) : 1;
+  const stepF = H.moving ? Math.max(0, Math.min(1, 1 - H.stepT / (H.stepDur || STEP))) : 1;
   const rhx = H.moving ? H.px + (H.x - H.px) * stepF : H.x, rhy = H.moving ? H.py + (H.y - H.py) * stepF : H.y;
   // camera follows the hero inside the 32x32 quadrant; everything below is drawn in world coordinates
   const tcx = Math.max(0, Math.min(SN - VIEW, rhx + .5 - VIEW / 2)), tcy = Math.max(0, Math.min(SN - VIEW, rhy + .5 - VIEW / 2));
@@ -1917,7 +1924,8 @@ $('shipInfo').onclick = () => toggleShipInfo(false);
 $('sr').addEventListener('pointerdown', e => {
   if (!U || U.over) return;
   const r = $('sr').getBoundingClientRect(), wx = (e.clientX - r.left) / r.width * VIEW + U.cam.x, wy = (e.clientY - r.top) / r.height * VIEW + U.cam.y;
-  const hx = H.moving ? H.px + (H.x - H.px) * Math.max(0, Math.min(1, 1 - H.stepT / STEP)) : H.x, hy = H.moving ? H.py + (H.y - H.py) * Math.max(0, Math.min(1, 1 - H.stepT / STEP)) : H.y;
+  const sf = H.moving ? Math.max(0, Math.min(1, 1 - H.stepT / (H.stepDur || STEP))) : 1;
+  const hx = H.moving ? H.px + (H.x - H.px) * sf : H.x, hy = H.moving ? H.py + (H.y - H.py) * sf : H.y;
   toggleShipInfo(Math.hypot(wx - (hx + .5), wy - (hy + .5)) <= .9 ? undefined : false);
 });
 document.addEventListener('keydown', e => { if (e.code === 'Escape') toggleShipInfo(false); });
