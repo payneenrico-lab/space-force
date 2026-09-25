@@ -409,7 +409,7 @@ function hitHero(d) {
   }
   H.flash = .4; H.regenT = 3; U.shake = .25; sfx.hit();
   if (H.shields < 25 && s >= 25) say('WARNING: SHIELDS CRITICAL!', 'bad');
-  if (H.hull <= 0) explodeHero('YOUR SHIP HAS BEEN DESTROYED.');
+  if (H.hull <= 0) explodeHero('THE SFS HOPE HAS BEEN DESTROYED.');
 }
 function damageAlien(a, d) {
   a.hp -= d; a.flash = .25;
@@ -737,7 +737,7 @@ function checkSector() {
     H.torps = Math.min(H.torpsMax, H.torps + 4); H.mines = Math.min(H.minesMax, H.mines + 3); H.energy = Math.min(MAXE, H.energy + 800); H.hull = Math.min(100, H.hull + 30); H.shields = 100;
     q.anom = null; sfx.supply(); say('SUPPLY DEPOT: TORPEDOES, MINES, ENERGY, HULL AND SHIELDS RESTORED!', 'good');
   }
-  else if (an.type === 'hole') explodeHero('YOUR SHIP WAS CRUSHED BY THE BLACK HOLE.');
+  else if (an.type === 'hole') explodeHero('THE SFS HOPE WAS CRUSHED BY THE BLACK HOLE.');
   else if (an.type === 'derelict') { q.anom = null; salvage(q); }
 }
 // Object collisions (stars, planets, asteroids, stations, the nest) are unsurvivable at ion-drive speed: the ship is destroyed outright.
@@ -835,9 +835,9 @@ function heroMoveStep() {
   if (nqx < 0 || nqy < 0 || nqx >= GN || nqy >= GN) return stopShip('EDGE OF THE GALAXY. ION DRIVE DISENGAGED.');
   const tq = Q(nqx, nqy), b = blockerAt(tq, nx, ny);
   if (b && b.t !== 'hero') {
-    if (b.t === 'nest') { damageNest(tq, 60); explodeHero('YOUR SHIP RAMMED THE ALIEN NEST AT FULL SPEED AND WAS DESTROYED.'); return; }
-    if (b.t === 'station') { hitStation(b.o, 60); explodeHero('YOUR SHIP RAMMED THE SPACE STATION AT FULL SPEED AND WAS DESTROYED.'); return; }
-    if (b.t === 'star' || b.t === 'planet' || b.t === 'rock') { explodeHero(`YOUR SHIP RAMMED ${COLL_LABEL[b.t]} AT FULL SPEED AND WAS DESTROYED.`); return; }
+    if (b.t === 'nest') { damageNest(tq, 60); explodeHero('THE SFS HOPE RAMMED THE ALIEN NEST AT FULL SPEED AND WAS DESTROYED.'); return; }
+    if (b.t === 'station') { hitStation(b.o, 60); explodeHero('THE SFS HOPE RAMMED THE SPACE STATION AT FULL SPEED AND WAS DESTROYED.'); return; }
+    if (b.t === 'star' || b.t === 'planet' || b.t === 'rock') { explodeHero(`THE SFS HOPE RAMMED ${COLL_LABEL[b.t]} AT FULL SPEED AND WAS DESTROYED.`); return; }
     if (b.t === 'alien') {
       const dmg = collisionDamage();   // the impact hits both ships equally hard
       damageAlien(b.o, dmg);
@@ -1311,7 +1311,7 @@ function doSelfDestruct() {
   for (const a of q.aliens.slice()) { q.aliens.splice(q.aliens.indexOf(a), 1); U.aliensLeft--; U.kills++; fx(a.x, a.y, 'big', 1.2, 1.5); }
   q.mines = [];
   say('SELF-DESTRUCT COMPLETE. THE QUADRANT IS DESTROYED.', 'bad');
-  U.endT = 1.3; U.pendingEnd = [U.aliensLeft === 0, U.aliensLeft === 0 ? 'YOU GAVE YOUR SHIP TO DESTROY THE LAST ALIENS. THE GALAXY IS SAFE!' : `YOUR SHIP WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`];
+  U.endT = 1.3; U.pendingEnd = [U.aliensLeft === 0, U.aliensLeft === 0 ? 'YOU GAVE THE SFS HOPE TO DESTROY THE LAST ALIENS. THE GALAXY IS SAFE!' : `THE SFS HOPE WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`];
 }
 
 // ================================================================ drawing: sprites
@@ -1905,7 +1905,7 @@ function renderShipInfo() {
   if (H.energyRegenRate > 3) ups.push(`REACTOR CORE: ${H.energyRegenRate}/s REGEN`);
   for (const s of scan) ups.push(`SCANNER: ${s} SECTORS RANGE`);
   const row = (k, v) => `<div class="r"><span>${k}</span><b>${v}</b></div>`;
-  el.innerHTML = `<h4>HERO SHIP</h4>` +
+  el.innerHTML = `<h4>SFS HOPE</h4>` +
     row('SHIELDS', Math.round(H.shields) + '%') + row('HULL', Math.round(H.hull) + '%') + row('ENERGY', Math.round(H.energy)) +
     row('TORPEDOES', `${H.torps}/${H.torpsMax}`) + row('MINES', `${H.mines}/${H.minesMax}`) + row('ENERGY REGEN', H.energyRegenRate + '/s') +
     (H.crippled > 0 ? '<div class="bad">CRIPPLED - SHIELDS OFFLINE</div>' : '') + (H.docking ? '<div class="u">DOCKED</div>' : '') +
@@ -1933,7 +1933,7 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 newGame();
-showOverlay('SPACE FORCE', 'Alien warships have infiltrated the galaxy. You are the hero, in command of the last defence cruiser.\n\n' + HELP, 'LAUNCH', () => { U.paused = false; });
+showOverlay('SPACE FORCE', 'Alien warships have infiltrated the galaxy. You are the hero, in command of the SFS Hope, the last defence cruiser.\n\n' + HELP, 'LAUNCH', () => { U.paused = false; });
 U.paused = true;
 requestAnimationFrame(loop);
 </script>
