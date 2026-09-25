@@ -70,6 +70,10 @@
      child (instead of align-items/justify-content on the box) still centers it when it fits, but falls back to normal,
      fully-scrollable top-down flow the moment it doesn't. */
   #overlay { position: absolute; inset: 0; display: none; background: rgba(2,4,12,.9); border-radius: 6px; padding: 14px; overflow-y: auto; }
+  #shipInfo { position: absolute; left: 12px; top: 12px; z-index: 5; width: 230px; padding: 10px 12px; background: rgba(4,10,24,.94); border: 1px solid var(--cyan); border-radius: 6px; font: 11px/1.5 "Courier New", monospace; color: #cfe8ff; cursor: pointer; }
+  #shipInfo h4 { margin: 0 0 4px; font-size: 12px; letter-spacing: 2px; color: var(--cyan); }
+  #shipInfo .r { display: flex; justify-content: space-between; gap: 8px; } #shipInfo .r b { color: #ffd54d; font-weight: normal; }
+  #shipInfo .u { color: #ffc447; margin-top: 2px; } #shipInfo .n { color: #7f8fb0; } #shipInfo .bad { color: #ff6a7a; }
   #overlay .card { max-width: 520px; margin: auto; } #overlay h2 { margin: 0 0 8px; letter-spacing: 3px; color: var(--cyan); }
   #guideOverlay { position: absolute; inset: 0; display: none; background: rgba(2,4,12,.96); border-radius: 6px; padding: 12px; overflow-y: auto; }
   #guideOverlay .ghead { position: sticky; top: -12px; margin: -12px -12px 10px; padding: 10px 12px; background: rgba(2,4,12,.98); border-bottom: 1px solid var(--line);
@@ -139,6 +143,7 @@
   <div id="mainCol">
     <div id="stage">
       <canvas id="sr" width="1408" height="1408"></canvas>
+      <div id="shipInfo" hidden></div>
       <div id="overlay"><div class="card"><h2 id="ovT"></h2><pre id="ovM"></pre><button id="ovB" class="go">LAUNCH</button></div></div>
       <div id="guideOverlay">
         <div class="ghead"><h2>ANOMALY FIELD GUIDE</h2><button id="gClose" class="gclose go">CLOSE</button></div>
@@ -212,6 +217,9 @@ const ANOM = {
 };
 const STATION_SHIELD = 400;   // 4x the hero's shield capacity
 const ANOM_KEYS = Object.keys(ANOM), anIdR = an => ANOM[an.type].idR || 3;
+// how close you must be to see hidden alien mines; a scanner-calibration upgrade to MINEFIELD raises it (idR was previously only used to identify the anomaly)
+const mineSeeR = () => ANOM.minefield.idR || 3;
+const ANOM_BASE_IDR = Object.fromEntries(ANOM_KEYS.map(k => [k, ANOM[k].idR]));   // scanner upgrades mutate idR, so a new game restores these
 
 // ================================================================ audio (synthesized)
 let ac = null, master = null, noiseBuf = null, soundOn = true, eng = null, lastPh = 0;
@@ -289,6 +297,8 @@ function newAlien(type, q, pos) {
   q.aliens.push(a);
 }
 function newGame() {
+  $('shipInfo').hidden = true;
+  for (const k of ANOM_KEYS) ANOM[k].idR = ANOM_BASE_IDR[k];
   U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], remnants: [], pendingRemnants: [], anom: null, visited: false, hue: ri(360) }; }
   H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, torpsMax: 10, minesMax: 6, hullArmor: 1, shieldArmor: 1, energyRegenRate: 3, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeAlong: false, holeCap: 1, holeBoost: 0, holeExited: false, holePeak: 0, holeExitRemain: 1, px: 6, py: 6 };
@@ -1023,7 +1033,8 @@ const SHIPYARD_UPGRADES = {
     const arr = [...types];
     if (!arr.length) return 'DEEP SCANNER ARRAY INSTALLED, BUT THERE IS NOTHING OUT THERE YET TO CALIBRATE IT TO.';
     const type = arr[ri(arr.length)]; ANOM[type].idR = (ANOM[type].idR || 3) + 3;
-    return `DEEP SCANNER ARRAY CALIBRATED TO ${ANOM[type].name} SIGNATURES - IDENTIFICATION RANGE EXTENDED.`;
+    return type === 'minefield' ? `DEEP SCANNER ARRAY CALIBRATED TO ${ANOM[type].name} SIGNATURES - HIDDEN MINES NOW SHOW WITHIN ${ANOM[type].idR} SECTORS.`
+      : `DEEP SCANNER ARRAY CALIBRATED TO ${ANOM[type].name} SIGNATURES - IDENTIFICATION RANGE NOW ${ANOM[type].idR} SECTORS.`;
   },
 };
 function tryShipyardUpgrade(s) {
@@ -1472,7 +1483,7 @@ function drawSR(t) {
   for (const p of q.planets) drawPlanet(c, p, cx(p.x), cx(p.y));
   q.stars.forEach((s, i) => drawStar(c, cx(s.x), cx(s.y), s.col, t, i));
   drawExtras(q, t);
-  for (const m of q.mines) { if (m.owner === 'hero' || cheb(m.x, m.y, H.x, H.y) <= 3) drawMine(c, m, cx(m.x), cx(m.y), t); }
+  for (const m of q.mines) { if (m.owner === 'hero' || cheb(m.x, m.y, H.x, H.y) <= mineSeeR()) drawMine(c, m, cx(m.x), cx(m.y), t); }
   for (const a of q.aliens) {
     if (alienHidden(q, a)) continue;
     if (a.cloaked && a.vis < .15) { if (cheb(a.x, a.y, H.x, H.y) <= 4) { const ox = cx(a.x + a.dOff[0]), oy = cx(a.y + a.dOff[1]);
@@ -1536,7 +1547,7 @@ function drawMini(t, cam) {
   if (big && q.anom && q.anom.known && ['nebula', 'timewarp'].includes(q.anom.type)) { c.fillStyle = 'rgba(185,123,255,.13)'; c.fillRect((q.anom.x - 4) * k, (q.anom.y - 4) * k, 9 * k, 9 * k); }
   if (q.anom) { c.fillStyle = '#c08bff'; c.fillRect(q.anom.x * k - 1, q.anom.y * k - 1, d + 2, d + 2); if (big) { c.font = 'bold 10px "Courier New"'; c.textAlign = 'left'; c.fillText(q.anom.known ? ANOM[q.anom.type].name : '?', q.anom.x * k + 8, q.anom.y * k + 8); } }
   c.fillStyle = ANOM.radiat.col; for (const r of q.remnants) { c.fillRect(r.x * k - 1, r.y * k - 1, d + 2, d + 2); if (big) { c.font = 'bold 10px "Courier New"'; c.textAlign = 'left'; c.fillText('RADIATION CLOUD', r.x * k + 8, r.y * k + 4); } }
-  for (const m of q.mines) { if (m.owner === 'hero') { c.fillStyle = m.laid ? '#ffc447' : '#4fd8ff'; c.fillRect(m.x * k, m.y * k, d, d); } else if (cheb(m.x, m.y, H.x, H.y) <= 3) { c.fillStyle = '#ff4d5e'; c.fillRect(m.x * k, m.y * k, d, d); } }
+  for (const m of q.mines) { if (m.owner === 'hero') { c.fillStyle = m.laid ? '#ffc447' : '#4fd8ff'; c.fillRect(m.x * k, m.y * k, d, d); } else if (cheb(m.x, m.y, H.x, H.y) <= mineSeeR()) { c.fillStyle = '#ff4d5e'; c.fillRect(m.x * k, m.y * k, d, d); } }
   for (const a of q.aliens) if (!(a.cloaked && a.vis < .15) && !alienHidden(q, a)) { c.fillStyle = ATYPES[a.type].col; c.fillRect(a.x * k - 1, a.y * k - 1, d + 2, d + 2); c.strokeStyle = '#ff4d5e'; c.lineWidth = 1; c.strokeRect(a.x * k - 2, a.y * k - 2, d + 4, d + 4); }
   c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 1; c.strokeRect(cam.x * k, cam.y * k, VIEW * k, VIEW * k);
   if (((t * 3) | 0) & 1) { c.fillStyle = '#fff'; c.fillRect(H.x * k - 2, H.y * k - 2, d + 3, d + 3); }
@@ -1599,6 +1610,7 @@ function drawSweep(t) {
 
 // ================================================================ UI
 function updateHUD() {
+  if (!$('shipInfo').hidden) renderShipInfo();
   $('bS').firstElementChild.nextElementSibling.firstChild.style.width = H.shields + '%'; $('tS').textContent = Math.round(H.shields) + '%';
   $('bH').firstElementChild.nextElementSibling.firstChild.style.width = Math.max(0, H.hull) + '%'; $('tH').textContent = Math.max(0, Math.round(H.hull)) + '%';
   $('bE').firstElementChild.nextElementSibling.firstChild.style.width = H.energy / MAXE * 100 + '%'; $('tE').textContent = Math.round(H.energy);
@@ -1881,6 +1893,34 @@ lr.addEventListener('pointerdown', e => {
   const q = Q(x, y), sc = isScanned(x, y), i = sc ? qInfo(q) : (q.mem && !q.mem.jammed ? q.mem : null), fmt = i => `${i.al} ALIEN${i.al === 1 ? '' : 'S'}, ${i.st} STARS, ${i.pl} PLANETS, ${i.sn} STATION${i.sn === 1 ? '' : 'S'}.`;
   say(`QUADRANT ${x + 1},${y + 1}: ` + (sc ? (i ? fmt(i) : 'LONG RANGE SENSORS JAMMED BY AN ANOMALY. GET CLOSER.') : i ? 'LAST SCAN: ' + fmt(i) : (q.mem && q.mem.jammed) ? 'LAST SCAN: SENSORS WERE JAMMED BY AN ANOMALY HERE.' : 'OUT OF SCANNER RANGE (ADJACENT QUADRANTS ONLY).'));
 });
+// clicking the hero's ship opens a small status / upgrades card; click it again, click elsewhere on the map, or press Esc to close
+function renderShipInfo() {
+  const el = $('shipInfo'), pct = m => Math.round((1 - m) * 100), sy = U.shipyard;
+  const scan = ANOM_KEYS.filter(k => ANOM[k].idR !== ANOM_BASE_IDR[k]).map(k => `${ANOM[k].name} +${ANOM[k].idR - (ANOM_BASE_IDR[k] || 3)}`);
+  const ups = [];
+  if (H.hullArmor < 1) ups.push(`HULL PLATING: -${pct(H.hullArmor)}% HULL DAMAGE`);
+  if (H.shieldArmor < 1) ups.push(`SHIELD EMITTERS: -${pct(H.shieldArmor)}% SHIELD DAMAGE`);
+  if (H.torpsMax > 10) ups.push(`TORPEDO BAY: MAX ${H.torpsMax}`);
+  if (H.minesMax > 6) ups.push(`MINE BAY: MAX ${H.minesMax}`);
+  if (H.energyRegenRate > 3) ups.push(`REACTOR CORE: ${H.energyRegenRate}/s REGEN`);
+  for (const s of scan) ups.push(`SCANNER: ${s} SECTORS RANGE`);
+  const row = (k, v) => `<div class="r"><span>${k}</span><b>${v}</b></div>`;
+  el.innerHTML = `<h4>HERO SHIP</h4>` +
+    row('SHIELDS', Math.round(H.shields) + '%') + row('HULL', Math.round(H.hull) + '%') + row('ENERGY', Math.round(H.energy)) +
+    row('TORPEDOES', `${H.torps}/${H.torpsMax}`) + row('MINES', `${H.mines}/${H.minesMax}`) + row('ENERGY REGEN', H.energyRegenRate + '/s') +
+    (H.crippled > 0 ? '<div class="bad">CRIPPLED - SHIELDS OFFLINE</div>' : '') + (H.docking ? '<div class="u">DOCKED</div>' : '') +
+    `<h4 style="margin-top:8px">UPGRADES</h4>` + (ups.length ? ups.map(u => `<div class="u">${u}</div>`).join('') : '<div class="n">NONE YET - FIND THE SHIPYARD</div>') +
+    (sy ? `<div class="n" style="margin-top:4px">${sy.pool.length ? `SHIPYARD: ${6 - sy.pool.length}/6 EARNED` + (sy.cdRemain > 0 ? `, NEXT IN ${Math.ceil(sy.cdRemain)}s AWAY` : '') : 'SHIPYARD: ALL 6 EARNED'}</div>` : '<div class="n" style="margin-top:4px">SHIPYARD DESTROYED</div>');
+}
+function toggleShipInfo(open) { const el = $('shipInfo'); el.hidden = open === undefined ? !el.hidden : !open; if (!el.hidden) renderShipInfo(); }
+$('shipInfo').onclick = () => toggleShipInfo(false);
+$('sr').addEventListener('pointerdown', e => {
+  if (!U || U.over) return;
+  const r = $('sr').getBoundingClientRect(), wx = (e.clientX - r.left) / r.width * VIEW + U.cam.x, wy = (e.clientY - r.top) / r.height * VIEW + U.cam.y;
+  const hx = H.moving ? H.px + (H.x - H.px) * Math.max(0, Math.min(1, 1 - H.stepT / STEP)) : H.x, hy = H.moving ? H.py + (H.y - H.py) * Math.max(0, Math.min(1, 1 - H.stepT / STEP)) : H.y;
+  toggleShipInfo(Math.hypot(wx - (hx + .5), wy - (hy + .5)) <= .9);
+});
+document.addEventListener('keydown', e => { if (e.code === 'Escape') toggleShipInfo(false); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && U && !U.over && !U.paused) { U.paused = true; engineOff(); } });
 
 // ================================================================ main loop
