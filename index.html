@@ -218,7 +218,7 @@ const ANOM = {
   minefield: { name: 'MINEFIELD',        col: '#ff6a6a', area: 1 },
   nest:      { name: 'ALIEN NEST',       col: '#7dff7d' },
 };
-const SD_RADIUS = 8, SD_SPEED = 5;   // self-destruct: blast radius in sectors, and how fast the shockwave (and the cascade of explosions) spreads
+const SD_RADIUS = 4, SUPERNOVA_R = 4, SD_SPEED = 5;   // self-destruct: blast radius in sectors, and how fast the shockwave (and the cascade of explosions) spreads
 const ATTACK_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const STATION_SHIELD = 400;   // 4x the hero's shield capacity
 const ANOM_KEYS = Object.keys(ANOM), anIdR = an => ANOM[an.type].idR || 3;
@@ -1443,9 +1443,22 @@ function doSelfDestruct() {
   U.dying = true; H.moving = false; H.hull = 0; engineOff(); H.docking = null; H.jump = null; U.pending = null; U.jm = null; U.shake = .8;
   for (let i = 0; i < 6; i++) fx(H.x + (rnd() - .5) * 2.5, H.y + (rnd() - .5) * 2.5, 'big', .9 + rnd() * .5, 1.4);
   // Everything within SD_RADIUS sectors is destroyed, but not all at once: a shockwave races outward and each object goes up as the
-  // wave front reaches it, so the blast reads as a cascade of explosions rippling out from the ship. The run ends once the last one
-  // has gone off, and only then is it decided whether the aliens were all destroyed (see finishRun).
-  const ev = [], add = (x, y, kind, o) => { const d = Math.hypot(x - H.x, y - H.y); if (d <= SD_RADIUS) ev.push({ t: d / SD_SPEED + rnd() * .06, kind, o, x, y }); };
+  // wave front reaches it, so the blast reads as a cascade of explosions rippling out from the ship. Any star caught in it goes
+  // supernova, which sends out a further blast of its own (see runCascade), so the chain can spread past the original radius. The
+  // run ends once the last explosion has gone off, and only then is it decided whether the aliens were all destroyed (see finishRun).
+  U.cascade = []; U.cascT = 0; U.cascSeen = new Set();
+  scheduleBlast(q, H.x, H.y, SD_RADIUS, 0);
+  say(`SELF-DESTRUCT! A CHAIN OF EXPLOSIONS RIPS OUTWARD FOR ${SD_RADIUS} SECTORS...`, 'bad');
+  U.posthMsg = 'THE SFS HOPE GAVE EVERYTHING TO DESTROY THE LAST OF THE ALIENS. THE GALAXY IS SAFE, AND ITS PILOT IS HONOURED POSTHUMOUSLY.';
+  U.loseMsg = () => `THE SFS HOPE WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`;
+  U.endT = 1.3; U.pendingEnd = [false, '', true];
+}
+// Queues an explosion for everything within `radius` of (bx, by) that isn't already queued, each timed to when the wave front reaches it.
+function scheduleBlast(q, bx, by, radius, t0) {
+  const add = (x, y, kind, o) => {
+    const d = Math.hypot(x - bx, y - by); if (d > radius || U.cascSeen.has(o)) return;
+    U.cascSeen.add(o); U.cascade.push({ t: t0 + d / SD_SPEED + rnd() * .06, kind, o, x, y });
+  };
   for (const a of q.aliens) add(a.x, a.y, 'alien', a);
   for (const m of q.mines) add(m.x, m.y, 'mine', m);
   for (const p of U.proj) add(Math.round(p.x), Math.round(p.y), 'proj', p);
@@ -1454,12 +1467,8 @@ function doSelfDestruct() {
   for (const s of q.stations) add(s.x, s.y, 'station', s);
   for (const r of q.debris) add(r.x, r.y, 'rock', r);
   if (q.anom) { if (q.anom.rocks) for (const r of q.anom.rocks) add(r.x, r.y, 'rock', r); if (q.anom.type === 'nest') add(q.anom.x, q.anom.y, 'nest', q.anom); }
-  U.cascade = ev.sort((a, b) => a.t - b.t); U.cascT = 0;
-  fx(H.x, H.y, 'wave', SD_RADIUS / SD_SPEED, 1);
-  say(`SELF-DESTRUCT! A CHAIN OF EXPLOSIONS RIPS OUTWARD FOR ${SD_RADIUS} SECTORS...`, 'bad');
-  U.posthMsg = 'THE SFS HOPE GAVE EVERYTHING TO DESTROY THE LAST OF THE ALIENS. THE GALAXY IS SAFE, AND ITS PILOT IS HONOURED POSTHUMOUSLY.';
-  U.loseMsg = () => `THE SFS HOPE WAS LOST WITH ${U.aliensLeft} ALIEN${U.aliensLeft === 1 ? '' : 'S'} STILL ALIVE.`;
-  U.endT = 1.3; U.pendingEnd = [false, '', true];
+  U.cascade.sort((a, b) => a.t - b.t);
+  fx(bx, by, 'wave', radius / SD_SPEED, radius);
 }
 function runCascade(dt) {
   const q = curQ(); U.cascT += dt;
@@ -1468,7 +1477,7 @@ function runCascade(dt) {
     if (e.kind === 'alien') { const i = q.aliens.indexOf(o); if (i >= 0) { q.aliens.splice(i, 1); U.aliensLeft--; U.kills++; fx(e.x, e.y, 'big', .9, 1.4); sfx.boom(); } }
     else if (e.kind === 'mine') { const i = q.mines.indexOf(o); if (i >= 0) { q.mines.splice(i, 1); fx(e.x, e.y, 'boom', .6, .9); } }
     else if (e.kind === 'proj') { const i = U.proj.indexOf(o); if (i >= 0) { U.proj.splice(i, 1); fx(e.x, e.y, 'boom', .6, .9); } }
-    else if (e.kind === 'star') { const i = q.stars.indexOf(o); if (i >= 0) { q.stars.splice(i, 1); fx(e.x, e.y, 'big', 1.4, 3.2); sfx.novaHit(); U.shake = Math.max(U.shake, .5); } }
+    else if (e.kind === 'star') { const i = q.stars.indexOf(o); if (i >= 0) { q.stars.splice(i, 1); fx(e.x, e.y, 'big', 1.4, 3.2); sfx.novaHit(); U.shake = Math.max(U.shake, .5); scheduleBlast(q, e.x, e.y, SUPERNOVA_R, U.cascT); } }
     else if (e.kind === 'planet') { const i = q.planets.indexOf(o); if (i >= 0) { q.planets.splice(i, 1); fx(e.x, e.y, 'big', 1.2, 2.4); sfx.big(); } }
     else if (e.kind === 'station') { if (q.stations.includes(o)) destroyStation(q, o); }
     else if (e.kind === 'rock') destroyRock(q, o);
@@ -1671,7 +1680,7 @@ function drawSR(t) {
     c.strokeStyle = col; c.globalAlpha = .4; c.lineWidth = 2; c.beginPath(); c.moveTo(cx(p.x), cx(p.y)); c.lineTo(cx(p.x - p.vx * .6), cx(p.y - p.vy * .6)); c.stroke(); c.globalAlpha = 1;
   }
   for (const f of U.fx) { const k = f.t / f.dur, x = cx(f.x), y = cx(f.y);
-    if (f.kind === 'wave') { c.strokeStyle = `rgba(255,213,77,${1 - k * .7})`; c.lineWidth = 4; c.beginPath(); c.arc(x, y, k * SD_RADIUS * CELL, 0, 6.3); c.stroke(); c.strokeStyle = `rgba(255,120,60,${.7 - k * .6})`; c.lineWidth = 9; c.beginPath(); c.arc(x, y, k * SD_RADIUS * CELL * .96, 0, 6.3); c.stroke(); continue; }
+    if (f.kind === 'wave') { c.strokeStyle = `rgba(255,213,77,${1 - k * .7})`; c.lineWidth = 4; c.beginPath(); c.arc(x, y, k * f.size * CELL, 0, 6.3); c.stroke(); c.strokeStyle = `rgba(255,120,60,${.7 - k * .6})`; c.lineWidth = 9; c.beginPath(); c.arc(x, y, k * f.size * CELL * .96, 0, 6.3); c.stroke(); continue; }
     const r = (f.kind === 'big' ? 20 + k * 80 : f.kind === 'jump' ? 10 + k * 50 : 6 + k * 26) * f.size;
     c.globalAlpha = 1 - k; c.fillStyle = f.kind === 'jump' ? '#c08bff' : k < .3 ? '#fff' : '#ffb347'; if (f.kind !== 'spark') { c.beginPath(); c.arc(x, y, r * .5, 0, 6.3); c.fill(); }
     c.strokeStyle = f.kind === 'jump' ? '#e0c0ff' : '#ff6a3a'; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r, 0, 6.3); c.stroke(); c.globalAlpha = 1; }
@@ -1828,7 +1837,7 @@ Alien minelayers still drop static mines that sit in space until something touch
 LAY MINEFIELD: press L then D (for "drop"), a number for how many to lay (capped at your mine stock, max 6), then S/L/R/A for the pattern - S lays them in a straight line behind you, L and R lay them diagonally back-left or back-right, and A fans them out across a wider arc behind you. Unlike a launched mine these don't travel and don't need tracking - they're planted right where you drop them (amber, same housing as a launched mine - dark and still while unarmed, blinking once it's live) and only ever go off if something else touches them. They arm once you're 2 sectors clear and stay armed after that, even if you come back. Comes out of the same mine stock as the launched kind. If the sectors behind you already hold one of your own mines, it's shifted further back to make room; anything else in the way (a star, an alien, an enemy mine...) cancels the whole lay with a warning.
 MINE SELF DESTRUCT (B), then 1 or 2: remotely detonates one of your mines already in flight, right where it currently is - including triggering a supernova or shattering a planet if that's what it's sitting over. Only works on a mine still travelling - a laid mine has to be triggered the normal way.
 HYPERJUMP (J) + a number 1-9 (0 = 10): jumps that many sectors in a RANDOM direction after a 2 second spool-up. You may end up in another quadrant. Costs more energy the further you jump.
-SELF DESTRUCT (K): a LAST RESORT weapon. 5 second countdown, then everything within 8 sectors is destroyed - including you: alien ships, torpedoes, mines, planets, stars, stations and debris. The blast spreads outward as a cascade of explosions, and the game ends once the last one has gone off (ships and weapons further away survive). Press K again to cancel.
+SELF DESTRUCT (K): a LAST RESORT weapon. 5 second countdown, then everything within 4 sectors is destroyed - including you: alien ships, torpedoes, mines, planets, stars, stations and debris. The blast spreads outward as a cascade of explosions, and any star caught in it goes supernova, starting a further blast of its own that can carry the chain farther. The game ends once the last explosion has gone off (ships and weapons out of reach survive). Press K again to cancel.
 SPACE pauses. Weapons work while moving.
 
 DANGERS: enemy phasers and torpedoes follow the same 8 directions - a red dashed line warns before they fire, so keep moving! Stealth ships cloak: a "DISTURBANCE" marker shows roughly where they lurk. Alien minelayers seed mines.
