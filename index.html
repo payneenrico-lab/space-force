@@ -197,7 +197,7 @@ const VEC = { 7: [-1, -1], 8: [0, -1], 9: [1, -1], 4: [-1, 0], 6: [1, 0], 1: [-1
 const MAXE = 2000, STEP = 0.22, MINE_ARM_DIST = 2;
 // zero-g flight: the ion drive accelerates at ACCEL sectors/s^2 from a standstill until the trip's midpoint, then decelerates the same way
 // (capped at VMAX on long trips, so the ship cruises through the middle instead of getting unmanageably fast)
-const ACCEL = 4, VMAX = 5.5;
+const ACCEL = 6, VMAX = 5.5;
 const ATYPES = {
   scout:      { name: 'SCOUT',        hp: 40,  step: .55, pref: 4, ph: 8,  pcd: 2.2, torp: 0, mine: 0, cloak: 0, col: '#7dff7d' },
   raider:     { name: 'RAIDER',       hp: 80,  step: .9,  pref: 5, ph: 10, pcd: 2.6, torp: 0, mine: 1, cloak: 0, col: '#ffb347' },
