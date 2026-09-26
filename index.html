@@ -526,7 +526,12 @@ const hash01 = n => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Mat
 let cer = null;
 function startCeremony(posth) {
   const cv = $('ceremony'); cv.style.display = 'block'; cer = { t0: performance.now(), posth };
-  const tick = now => { if (!cer || $('overlay').style.display === 'none') { cer = null; return; } drawCeremony(cv.getContext('2d'), (now - cer.t0) / 1000, cer.posth); requestAnimationFrame(tick); };
+  const tick = now => {
+    if (!cer || $('overlay').style.display === 'none') { cer = null; return; }
+    const t = (now - cer.t0) / 1000; drawCeremony(cv.getContext('2d'), t, cer.posth);
+    if (t > 240) { cer = null; return; }   // celebrate for four minutes, then hold the last frame instead of animating for hours
+    requestAnimationFrame(tick);
+  };
   requestAnimationFrame(tick);
 }
 function cerPerson(c, x, y, s, o) {   // feet at (x, y); o: body, skin, cap, pose ('stand' | 'cheer' | 'salute'), ph (animation phase), walk
@@ -1907,15 +1912,22 @@ function drawSweep(t) {
 }
 
 // ================================================================ UI
+// The HUD is refreshed every frame, so each write only touches the page when its value actually changed - rewriting identical text or
+// styles 60 times a second keeps the browser re-laying-out the page for nothing (heavy in Firefox, and it adds up over long sessions).
+const hudCache = new Map();
+function hudSet(key, v, apply) { if (hudCache.get(key) !== v) { hudCache.set(key, v); apply(v); } }
+const hudText = (id, v) => hudSet(id, String(v), s => { $(id).textContent = s; });
+const hudWidth = (id, v) => hudSet('w' + id, v, s => { $(id).firstElementChild.nextElementSibling.firstChild.style.width = s; });
+const hudDisplay = (el, v) => hudSet('d' + (el.id || el.dataset.n), v, s => { el.style.display = s; });
 function updateHUD() {
   if (!$('shipInfo').hidden) renderShipInfo();
-  $('bS').firstElementChild.nextElementSibling.firstChild.style.width = H.shields + '%'; $('tS').textContent = Math.round(H.shields) + '%';
-  $('bH').firstElementChild.nextElementSibling.firstChild.style.width = Math.max(0, H.hull) + '%'; $('tH').textContent = Math.max(0, Math.round(H.hull)) + '%';
-  $('bE').firstElementChild.nextElementSibling.firstChild.style.width = H.energy / MAXE * 100 + '%'; $('tE').textContent = Math.round(H.energy);
-  $('sTorp').textContent = H.torps; $('sMine').textContent = H.mines; $('sPod').textContent = H.pods; $('sAl').textContent = U.aliensLeft; $('sPos').textContent = `${H.qx + 1},${H.qy + 1} / ${H.x + 1},${H.y + 1}`;
-  $('sLvl').textContent = U.level; $('sNova').textContent = H.novas;
-  $('cDisr').classList.toggle('unlocked', H.disrUnlocked); $('cDisr').lastElementChild.textContent = H.disrUnlocked ? 'X' : `LV.${LEVELS.find(l => l.unlock === 'disr').n}`;
-  $('cNova').classList.toggle('unlocked', H.novaUnlocked); $('cNova').lastElementChild.textContent = H.novaUnlocked ? 'V' : `LV.${LEVELS.find(l => l.unlock === 'nova').n}`;
+  hudWidth('bS', H.shields + '%'); hudText('tS', Math.round(H.shields) + '%');
+  hudWidth('bH', Math.max(0, H.hull) + '%'); hudText('tH', Math.max(0, Math.round(H.hull)) + '%');
+  hudWidth('bE', H.energy / MAXE * 100 + '%'); hudText('tE', Math.round(H.energy));
+  hudText('sTorp', H.torps); hudText('sMine', H.mines); hudText('sPod', H.pods); hudText('sAl', U.aliensLeft); hudText('sPos', `${H.qx + 1},${H.qy + 1} / ${H.x + 1},${H.y + 1}`);
+  hudText('sLvl', U.level); hudText('sNova', H.novas);
+  $('cDisr').classList.toggle('unlocked', H.disrUnlocked); hudSet('cDisrL', H.disrUnlocked ? 'X' : `LV.${LEVELS.find(l => l.unlock === 'disr').n}`, s => { $('cDisr').lastElementChild.textContent = s; });
+  $('cNova').classList.toggle('unlocked', H.novaUnlocked); hudSet('cNovaL', H.novaUnlocked ? 'V' : `LV.${LEVELS.find(l => l.unlock === 'nova').n}`, s => { $('cNova').lastElementChild.textContent = s; });
   let p = '';
   if (U.sd) p = `SELF-DESTRUCT IN ${Math.ceil(U.sd.t)}... PRESS K AGAIN TO CANCEL.`;
   else if (H.docking) p = (H.docking.done ? 'DOCKED' : `DOCKING (${H.docking.t.toFixed(1)}s)`) + ` - STATION SHIELDS ${Math.max(0, Math.round(H.docking.s.shield))}/${STATION_SHIELD}. WEAPONS OFFLINE. PRESS D TO UNDOCK.`;
@@ -1926,16 +1938,17 @@ function updateHUD() {
   else if (U.pending && U.pending.stage === 'pick') p = `POD SELF DESTRUCT: PRESS 1 OR 2 TO CHOOSE WHICH POD IN FLIGHT TO DETONATE (${U.proj.filter(pr => pr.mine && pr.owner === 'hero').length} IN FLIGHT).`;
   else if (U.pending && U.pending.stage === 'layCount') p = `LAY MINEFIELD: PRESS A NUMBER FOR HOW MANY TO DROP (1-${H.mines} AVAILABLE).`;
   else if (U.pending && U.pending.stage === 'layPattern') p = `LAY MINEFIELD (${U.pending.count}): PRESS S (STRAIGHT BEHIND), L (BACK-LEFT DIAGONAL), R (BACK-RIGHT DIAGONAL) OR A (ARC).`;
-  else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'LAUNCH MINE: PRESS A DIRECTION (NUMPAD 1-9) TO LAUNCH ONE, OR D TO LAY A STATIC MINEFIELD INSTEAD', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
+  else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'ANTIMATTER POD: PRESS A DIRECTION (NUMPAD 1-9)', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.collision) p = `⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD! CHANGE COURSE (NUMPAD) OR STOP (S).`;
   else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S, 0 OR 5 STOPS.`;
   else p = 'READY.';
-  $('prompt').textContent = p;
-  $('distv').textContent = H.dist; $('distc').textContent = 'ENERGY COST ' + driveCost(H.dist);
-  $('jnums').style.display = (U.jm || (U.pending && U.pending.stage && U.pending.stage !== 'layPattern')) ? 'grid' : 'none';
-  for (const b of document.querySelectorAll('#jnums [data-n]')) b.style.display = (U.pending && U.pending.stage === 'pick' && +b.dataset.n > 2) || (U.pending && U.pending.stage === 'layCount' && +b.dataset.n > H.mines) ? 'none' : '';
-  $('lpat').style.display = (U.pending && U.pending.stage === 'layPattern') ? 'grid' : 'none';
+  hudText('prompt', p);
+  hudText('distv', H.dist); hudText('distc', 'ENERGY COST ' + driveCost(H.dist));
+  hudDisplay($('jnums'), (U.jm || (U.pending && U.pending.stage && U.pending.stage !== 'layPattern')) ? 'grid' : 'none');
+  for (const b of jnumButtons) hudDisplay(b, (U.pending && U.pending.stage === 'pick' && +b.dataset.n > 2) || (U.pending && U.pending.stage === 'layCount' && +b.dataset.n > H.mines) ? 'none' : '');
+  hudDisplay($('lpat'), (U.pending && U.pending.stage === 'layPattern') ? 'grid' : 'none');
 }
+const jnumButtons = [...document.querySelectorAll('#jnums [data-n]')];
 // `html`, when given, replaces the plain-text message with rich content (the intro and the help pages); `wide` widens the card for it
 function showOverlay(t, m, b, cb, html, wide) {
   $('ceremony').style.display = 'none'; $('ovT').textContent = t; $('ovLoad').style.display = 'none';
@@ -2309,12 +2322,13 @@ function renderShipInfo() {
   if (H.energyRegenRate > 3) ups.push(`REACTOR CORE: ${H.energyRegenRate}/s REGEN`);
   for (const s of scan) ups.push(`SCANNER: ${s} SECTORS RANGE`);
   const row = (k, v) => `<div class="r"><span>${k}</span><b>${v}</b></div>`;
-  el.innerHTML = `<h4>SFS HOPE</h4>` +
+  const html = `<h4>SFS HOPE</h4>` +
     row('SHIELDS', Math.round(H.shields) + '%') + row('HULL', Math.round(H.hull) + '%') + row('ENERGY', Math.round(H.energy)) +
     row('TORPEDOES', `${H.torps}/${H.torpsMax}`) + row('MINES', `${H.mines}/${H.minesMax}`) + row('PODS', `${H.pods}/${H.podsMax}`) + (H.novaUnlocked ? row('NOVAS', `${H.novas}/${H.novasMax}`) : '') + row('ENERGY REGEN', H.energyRegenRate + '/s') +
     (H.crippled > 0 ? '<div class="bad">CRIPPLED - SHIELDS OFFLINE</div>' : '') + (H.docking ? '<div class="u">DOCKED</div>' : '') +
     `<h4 style="margin-top:8px">UPGRADES</h4>` + (ups.length ? ups.map(u => `<div class="u">${u}</div>`).join('') : '<div class="n">NONE YET - FIND THE SHIPYARD</div>') +
     (sy ? `<div class="n" style="margin-top:4px">${sy.pool.length ? `SHIPYARD: ${8 - sy.pool.length}/8 EARNED` + (sy.cdRemain > 0 ? `, NEXT IN ${Math.ceil(sy.cdRemain)}s AWAY` : '') : 'SHIPYARD: ALL 8 EARNED'}</div>` : '<div class="n" style="margin-top:4px">SHIPYARD DESTROYED</div>');
+  if (html !== el.dataset.html) { el.dataset.html = html; el.innerHTML = html; }   // it's refreshed every frame while open - only rebuild when something changed
 }
 function toggleShipInfo(open) { const el = $('shipInfo'); el.hidden = open === undefined ? !el.hidden : !open; if (!el.hidden) renderShipInfo(); }
 $('shipInfo').onclick = () => toggleShipInfo(false);
@@ -2329,8 +2343,16 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && U &
 
 // ================================================================ main loop
 let last = performance.now();
+// A game left running with nobody at the controls is paused after AUTO_PAUSE_MS, and while the game is paused or finished the screen is
+// only redrawn about 5 times a second instead of 60 - redrawing a big canvas 60 times a second for hours is what makes a page that has
+// been left open sluggish (Firefox especially).
+const AUTO_PAUSE_MS = 5 * 60 * 1000; let lastInput = performance.now(), lastDraw = 0;
+for (const ev of ['keydown', 'pointerdown', 'pointermove']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true });
 function loop(now) {
   const dt = Math.min(.1, (now - last) / 1000); last = now;
+  if (U && (U.paused || U.over) && !guideOpen && now - lastDraw < 200) { requestAnimationFrame(loop); return; }
+  lastDraw = now;
+  if (U && !U.paused && !U.over && !U.dying && now - lastInput > AUTO_PAUSE_MS) { U.paused = true; engineOff(); say('AUTO-PAUSED: NO INPUT FOR 5 MINUTES. PRESS SPACE TO RESUME.', 'warn'); }
   if (U) { update(dt); drawSR(now / 1000); drawLR(now / 1000); updateHUD(); }
   drawSweep(now / 1000);
   if (guideOpen) for (const g of GUIDE) paintGuideCard(guideCtx[g.id], g.id, now / 1000);
