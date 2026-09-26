@@ -1619,17 +1619,30 @@ function drawAlienShip(ctx, a, x, y, t) {
     ctx.fillStyle = ((t * 4) | 0) & 1 ? '#ffe14d' : '#fff'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, 6.3); ctx.fill(); ctx.strokeStyle = '#ff9ab8'; ctx.lineWidth = 1.2; ctx.stroke(); }
   ctx.restore();
 }
+// Stars and planets are pre-rendered once into small offscreen sprites and stamped onto the map each frame, instead of building fresh
+// gradient objects for every one of them 60 times a second (that churned a lot of garbage, which Firefox in particular was slow to clear).
+const spriteCache = new Map();
+function sprite(key, draw) {   // a 64x64 logical-unit sprite, rendered at 2x, centred on (32, 32)
+  let cv = spriteCache.get(key);
+  if (!cv) { cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d'); g.scale(2, 2); draw(g); spriteCache.set(key, cv); }
+  return cv;
+}
 function drawStar(ctx, x, y, col, t, seed) {
-  const r = 8 + Math.sin(t * 2 + seed) * .8, gr = ctx.createRadialGradient(x, y, 1, x, y, r * 2.4);
-  gr.addColorStop(0, '#ffffff'); gr.addColorStop(.25, col); gr.addColorStop(1, col + '00'); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, r * 2.4, 0, 6.3); ctx.fill();
+  const r = 8 + Math.sin(t * 2 + seed) * .8, s = r / 8;
+  const sp = sprite('star' + col, g => { const gr = g.createRadialGradient(32, 32, 1, 32, 32, 19.2); gr.addColorStop(0, '#ffffff'); gr.addColorStop(.25, col); gr.addColorStop(1, col + '00'); g.fillStyle = gr; g.beginPath(); g.arc(32, 32, 19.2, 0, 6.3); g.fill(); });
+  ctx.drawImage(sp, x - 32 * s, y - 32 * s, 64 * s, 64 * s);
   ctx.strokeStyle = col; ctx.globalAlpha = .6; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x - r * 2, y); ctx.lineTo(x + r * 2, y); ctx.moveTo(x, y - r * 2); ctx.lineTo(x, y + r * 2); ctx.stroke(); ctx.globalAlpha = 1;
 }
 function drawPlanet(ctx, p, x, y) {
-  const r = 12, gr = ctx.createRadialGradient(x - 4, y - 4, 2, x, y, r);
-  gr.addColorStop(0, `hsl(${p.hue},70%,75%)`); gr.addColorStop(.6, `hsl(${p.hue},55%,42%)`); gr.addColorStop(1, `hsl(${p.hue},60%,14%)`);
-  if (p.ring) { ctx.strokeStyle = `hsla(${p.hue},50%,80%,.7)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, y, r * 1.6, r * .45, -.4, Math.PI, 0); ctx.stroke(); }
-  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.3); ctx.fill();
-  if (p.ring) { ctx.strokeStyle = `hsla(${p.hue},50%,80%,.7)`; ctx.beginPath(); ctx.ellipse(x, y, r * 1.6, r * .45, -.4, 0, Math.PI); ctx.stroke(); }
+  const hue = Math.round(p.hue / 10) * 10, ring = !!p.ring;   // hues are grouped into steps of 10 degrees so only a few dozen sprites ever exist
+  const sp = sprite(`planet${hue}${ring}`, g => {
+    const r = 12, gr = g.createRadialGradient(28, 28, 2, 32, 32, r);
+    gr.addColorStop(0, `hsl(${hue},70%,75%)`); gr.addColorStop(.6, `hsl(${hue},55%,42%)`); gr.addColorStop(1, `hsl(${hue},60%,14%)`);
+    if (ring) { g.strokeStyle = `hsla(${hue},50%,80%,.7)`; g.lineWidth = 2; g.beginPath(); g.ellipse(32, 32, r * 1.6, r * .45, -.4, Math.PI, 0); g.stroke(); }
+    g.fillStyle = gr; g.beginPath(); g.arc(32, 32, r, 0, 6.3); g.fill();
+    if (ring) { g.strokeStyle = `hsla(${hue},50%,80%,.7)`; g.beginPath(); g.ellipse(32, 32, r * 1.6, r * .45, -.4, 0, Math.PI); g.stroke(); }
+  });
+  ctx.drawImage(sp, x - 32, y - 32, 64, 64);
 }
 function drawAnom(ctx, an, x, y, t) {
   const col = an.known ? ANOM[an.type].col : '#b08cff'; ctx.save(); ctx.translate(x, y);
