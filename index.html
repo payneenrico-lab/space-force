@@ -2065,7 +2065,15 @@ function loadGameFromText(text) {
     engineOff(); sfx.ping(); say('GAME LOADED. PRESS SPACE TO RESUME.', 'good');
   } catch (e) { say('THAT FILE IS NOT A SAVED GAME THIS VERSION CAN LOAD.', 'bad'); }
 }
-function askLoad() {   // opens a file picker; choosing a save file replaces the game in progress
+async function askLoad() {   // opens a file picker; choosing a save file replaces the game in progress
+  // Chrome and Edge let a page ask for the Downloads folder to be the picker's starting point (and remember the last folder used);
+  // other browsers decide that themselves, so they get the plain file picker below.
+  if (window.showOpenFilePicker) {
+    try {
+      const [h] = await window.showOpenFilePicker({ id: 'space-force-saves', startIn: 'downloads', multiple: false, types: [{ description: 'Space Force saved game', accept: { 'application/json': ['.json'] } }] });
+      return loadGameFromText(await (await h.getFile()).text());
+    } catch (e) { if (e && e.name === 'AbortError') return; /* closed the dialog - nothing to do; anything else falls through to the plain picker */ }
+  }
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
   inp.onchange = () => { const f = inp.files && inp.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => loadGameFromText(String(r.result)); r.readAsText(f); };
   inp.click();
