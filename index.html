@@ -1074,6 +1074,7 @@ function update(dt) {
   U.t += dt; U.grace = Math.max(0, U.grace - dt);
   if (U.pending && (U.pending.t -= dt) <= 0) U.pending = null;
   const q = curQ(); scanAround();
+  updateScannerGlitch(dt);
   // energy / shields - both replenish at the local flow of time, same as everything else caught in a time distortion
   // field: slower inside a SLOW zone, faster inside a FAST one, unaffected everywhere else (tsAt returns 1).
   const ts = tsAt(H.x, H.y);
@@ -1881,6 +1882,23 @@ function scanAround() {   // the long range scanner: current + adjacent quadrant
     else if (q.anom && !q.anom.known) q.mem = { jammed: true };   // still unidentified, but remember that this sector was jammed
   }
 }
+// Scanner malfunction: a quadrant you've already scanned at least once occasionally flickers its TRUE alien count for a moment,
+// cloaked ships included, before dropping back to the normal (cloak-blind) reading - a glitch, not a reliable detector. Only a
+// quadrant currently hiding a cloaked ship can ever flicker, so it's never a spoiler for empty space. The check runs once a
+// second per quadrant; the odds of a flicker rise sharply as fewer aliens remain, so it stays a rare curiosity in a full game
+// but becomes a real aid when hunting the last one or two.
+function updateScannerGlitch(dt) {
+  for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
+    const q = Q(x, y);
+    if (q.flickerT > 0) { q.flickerT -= dt; continue; }
+    q.flickerCd = (q.flickerCd || 1) - dt;
+    if (q.flickerCd > 0) continue;
+    q.flickerCd = 1;   // re-roll about once a second
+    if (!q.mem || q.mem.jammed || !q.aliens.some(a => a.cloaked)) continue;
+    const oddsPerSec = .05 * Math.min(6, 6 / Math.max(1, U.aliensLeft));
+    if (rnd() < oddsPerSec) q.flickerT = .35 + rnd() * .25;
+  }
+}
 function qInfo(q) {
   if (q.anom && !q.anom.known) return null;
   const seen = a => !(ATYPES[a.type].cloak && a.cloaked) && !(inNebula(q, a.x, a.y) && !(q === curQ() && cheb(a.x, a.y, H.x, H.y) <= 2));
@@ -1902,7 +1920,10 @@ function drawLR(t) {
       continue;
     }
     g.font = 'bold 10px "Courier New"'; g.globalAlpha = dim ? .42 : 1;
-    g.fillStyle = info.al ? '#ff6a7a' : '#4a4f66'; g.fillText('☠' + info.al, px + 5, py + 21);
+    if (q.flickerT > 0) {   // scanner glitch: a moment of the TRUE count (cloaked ships included), jittered and off-colour
+      const trueAl = q.aliens.length, jx = (rnd() - .5) * 3, jy = (rnd() - .5) * 1.5, prevAlpha = g.globalAlpha;
+      g.globalAlpha = 1; g.fillStyle = rnd() < .5 ? '#ff2a9d' : '#ffffff'; g.fillText('☠' + trueAl, px + 5 + jx, py + 21 + jy); g.globalAlpha = prevAlpha;
+    } else { g.fillStyle = info.al ? '#ff6a7a' : '#4a4f66'; g.fillText('☠' + info.al, px + 5, py + 21); }
     g.fillStyle = '#ffd54d'; g.fillText('★' + info.st, px + 5, py + 32); g.fillStyle = '#6fb8ff'; g.fillText('●' + info.pl, px + 5, py + 43);
     if (info.an) { g.fillStyle = ANOM[info.an.type].col; g.fillText('◎', px + 34, py + 43); }
     if (info.sn) { const sc2 = info.sy ? '#ffc447' : '#4fd8ff'; g.strokeStyle = sc2; g.lineWidth = 1.5; g.beginPath(); g.arc(px + 36, py + 17, 4, 0, 6.3); g.moveTo(px + 30, py + 17); g.lineTo(px + 42, py + 17); g.stroke(); g.fillStyle = sc2; g.fillText(info.sn, px + 43, py + 21); }
@@ -2047,7 +2068,7 @@ const HELP_HTML = `
 <details><summary>DANGERS</summary><div>
 <ul>
 <li>Enemy phasers and torpedoes follow the same 8 directions. A red dashed line warns before they fire.</li>
-<li>Stealth ships cloak; a DISTURBANCE marker shows roughly where they lurk.</li>
+<li>Stealth ships cloak; a DISTURBANCE marker shows roughly where they lurk. The long range scanner is cloak-blind, but a quadrant you've already scanned can occasionally glitch and flash its true alien count for a moment - rare in a full game, much more likely once only a ship or two remains.</li>
 <li>Alien minelayers seed mines that sit until something touches them.</li>
 <li>Stations block movement and shots, and fire back at aligned aliens.</li>
 </ul>
