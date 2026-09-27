@@ -244,7 +244,7 @@ const ANOM = {
   minefield: { name: 'MINEFIELD',        col: '#ff6a6a', area: 1 },
   nest:      { name: 'ALIEN NEST',       col: '#7dff7d' },
 };
-const DS_COST = 800, DS_MIN_SHIELD = 80, DS_RECOVERY = 120, DS_STALL_BELOW = 400, DS_RING = 2;   // deep space scan: energy cost, shield% required to fire, recovery time, energy floor below which recovery stalls, extra ring of quadrants revealed
+const DS_COST = 800, DS_RESERVE = 200, DS_MIN_SHIELD = 80, DS_RECOVERY = 120, DS_STALL_BELOW = 400, DS_RING = 2;   // deep space scan: energy cost, energy that must remain after firing, shield% required to fire, recovery time, energy floor below which recovery stalls, extra ring of quadrants revealed
 const BLAST_R = 6, SD_PEAK = 400, NOVA_PEAK = 600, SD_SPEED = 5;   // blast radius (sectors), peak damage of a self-destruct / supernova, how fast the wave spreads (sectors/s)
 const PLANET_SHATTER = 150, PLANET_OBLIT = 300;   // damage a planet needs to shatter, and to be obliterated
 // Star types, by colour. `weight` is how common it is when the galaxy is made (milder than real life, where red dwarfs are ~3 in 4 and
@@ -1912,15 +1912,15 @@ function updateScannerGlitch(dt) {
   }
 }
 // DEEP SPACE SCAN (S): a one-off burst that snapshots the ring of quadrants two steps out (the normal long range scanner only ever
-// covers one step, continuously). Costs a flat 800 energy and needs shields at 80% or more to fire - both checked up front, no
-// partial scans. Afterward a 120 second recovery timer runs, but only while energy stays at or above DS_STALL_BELOW; drop under that
+// covers one step, continuously). Costs a flat 800 energy, needs shields at 80% or more, and needs at least DS_COST+DS_RESERVE
+// (1000) energy on hand so a 200-energy reserve survives the scan - all checked up front, no partial scans. Afterward a 120 second recovery timer runs, but only while energy stays at or above DS_STALL_BELOW; drop under that
 // and the timer freezes (not resets) until energy climbs back, exactly like the shipyard's leave-quadrant cooldown pause.
 function deepScan() {
   if (!U || U.over) return;
   if (H.crippled > 0) return say('SYSTEMS OFFLINE - THE SHIP IS CRIPPLED!', 'bad');
   if (U.deepScanCd > 0) { const stalled = H.energy < DS_STALL_BELOW; return say(stalled ? `DEEP SCAN RECOVERING - STALLED, NEEDS ${DS_STALL_BELOW} ENERGY (${Math.ceil(U.deepScanCd)}s LEFT).` : `DEEP SCAN RECOVERING (${Math.ceil(U.deepScanCd)}s).`, 'warn'); }
   if (H.shields < DS_MIN_SHIELD) return say(`DEEP SCAN NEEDS SHIELDS AT ${DS_MIN_SHIELD}% OR MORE.`, 'warn');
-  if (H.energy < DS_COST) return say(`INSUFFICIENT ENERGY FOR A DEEP SCAN (NEEDS ${DS_COST}).`, 'bad');
+  if (H.energy < DS_COST + DS_RESERVE) return say(`INSUFFICIENT ENERGY FOR A DEEP SCAN (NEEDS ${DS_COST + DS_RESERVE}, TO LEAVE A ${DS_RESERVE} RESERVE).`, 'bad');
   U.pending = null; H.energy -= DS_COST; U.deepScanCd = DS_RECOVERY;
   const flashed = [];
   for (let dy = -DS_RING; dy <= DS_RING; dy++) for (let dx = -DS_RING; dx <= DS_RING; dx++) {
@@ -2060,7 +2060,7 @@ const HELP_HTML = `
 <p><b>Goal:</b> destroy every alien ship in the 8x8 galaxy of quadrants. Each quadrant is 32x32 sectors; the main screen shows a 16x16 window that follows your ship.</p>
 <p><b>Short range scanner</b> (inset, top right): the whole quadrant, with a white box for what you can see. <kbd>R</kbd> enlarges it.</p>
 <p><b>Long range scanner</b> (galaxy map): reads your quadrant and the 8 around it live; quadrants further away show your last scan, dimmed. <b>???</b> means an anomaly is jamming it &mdash; fly close to identify it.</p>
-<p><b>Deep space scan</b> <kbd>S</kbd>: a one-off burst that snapshots the ring of 16 quadrants two steps out, well beyond the long range scanner's normal reach. Costs 800 energy and needs shields at 80% or more to fire. Afterward it needs 120 seconds to recover, which only counts down while your energy stays at 400 or above - drop below that and the timer freezes until it recovers. Available from the start; its status shows on the panel below the shield, hull and energy bars.</p>
+<p><b>Deep space scan</b> <kbd>S</kbd>: a one-off burst that snapshots the ring of 16 quadrants two steps out, well beyond the long range scanner's normal reach. Costs 800 energy, and firing needs shields at 80% or more and at least 1000 energy on hand, so a 200-energy reserve always survives the scan. Afterward it needs 120 seconds to recover, which only counts down while your energy stays at 400 or above - drop below that and the timer freezes until it recovers. Available from the start; its status shows on the panel below the shield, hull and energy bars.</p>
 <p><b>Field guide</b> <kbd>G</kbd> shows every anomaly and what it does. <b>Contacts</b> <kbd>C</kbd> logs the stations, anomalies and aliens the scanner has found.</p>
 <p>Click your ship for a status and upgrades card.</p>
 <p><b>Save and load:</b> <kbd>F</kbd> saves the current game to a file, space-force-save.json, in your downloads. <kbd>O</kbd> (or LOAD SAVED GAME on the opening screen) lets you pick that file to load it, replacing the game in progress. It's a file, so it survives closing the browser or using a private window. You can only save while the board is still: ship stopped, no weapons in flight, and not mid-jump or mid-dock. Aliens are saved wherever they are.</p>
