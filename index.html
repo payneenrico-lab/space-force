@@ -46,6 +46,7 @@
   .bar { height: 10px; background: #050914; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; margin: 2px 0 1px; }
   .bar i { display: block; height: 100%; width: 100%; }
   #bS i { background: linear-gradient(90deg,#1f7bff,#4fd8ff); } #bH i { background: linear-gradient(90deg,#c22,#ff8a4d); } #bE i { background: linear-gradient(90deg,#b8860b,#ffd54d); }
+  .dsrow { margin: 8px 0 0; padding: 5px 8px; border: 1px solid var(--green); border-radius: 4px; background: var(--panel); font-size: 11px; letter-spacing: .5px; color: var(--green); text-align: center; }
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; text-align: center; }
   .stats div { background: #060a1a; border: 1px solid var(--line); border-radius: 4px; padding: 3px 0; }
   .stats b { display: block; font-size: 15px; color: var(--amber); }
@@ -154,6 +155,7 @@
       <button id="cSD" class="dg">SELF DESTRUCT<small>K</small></button>
       <button id="cDock" class="go">DOCK<small>D</small></button>
       <button id="cScan">SCANNER<small>R</small></button>
+      <button id="cDeepScan">DEEP SPACE SCAN<small>S</small></button>
       <button id="cGuide">FIELD GUIDE<small>G</small></button>
       <button id="cPause">PAUSE<small>SPACE</small></button>
       <button id="cHelp">HELP<small>H</small></button>
@@ -185,6 +187,7 @@
         <div id="bH"><span class="lbl">HULL <b id="tH"></b></span><div class="bar"><i></i></div></div>
         <div id="bE"><span class="lbl">ENERGY <b id="tE"></b></span><div class="bar"><i></i></div></div>
       </div>
+      <div id="dsRow" class="dsrow">DEEP SCAN: READY</div>
       <div class="stats" style="grid-template-columns:repeat(4,1fr)">
         <div><b id="sLvl">1</b><span class="lbl">LEVEL</span></div>
         <div><b id="sTorp">10</b><span class="lbl">TORPEDOES</span></div>
@@ -241,6 +244,7 @@ const ANOM = {
   minefield: { name: 'MINEFIELD',        col: '#ff6a6a', area: 1 },
   nest:      { name: 'ALIEN NEST',       col: '#7dff7d' },
 };
+const DS_COST = 800, DS_MIN_SHIELD = 80, DS_RECOVERY = 120, DS_STALL_BELOW = 400, DS_RING = 2;   // deep space scan: energy cost, shield% required to fire, recovery time, energy floor below which recovery stalls, extra ring of quadrants revealed
 const BLAST_R = 6, SD_PEAK = 400, NOVA_PEAK = 600, SD_SPEED = 5;   // blast radius (sectors), peak damage of a self-destruct / supernova, how fast the wave spreads (sectors/s)
 const PLANET_SHATTER = 150, PLANET_OBLIT = 300;   // damage a planet needs to shatter, and to be obliterated
 // Star types, by colour. `weight` is how common it is when the galaxy is made (milder than real life, where red dwarfs are ~3 in 4 and
@@ -310,6 +314,7 @@ const sfx = {
   novaFire(){ noise({ dur: .6, vol: .3, f0: 300, f1: 4000, type: 'bandpass' }); tone({ type: 'sine', f0: 150, f1: 900, dur: .5, vol: .2 }); },
   novaHit() { noise({ dur: 1.6, vol: .9, f0: 6000, f1: 50 }); tone({ type: 'sawtooth', f0: 100, f1: 15, dur: 1.5, vol: .4 }); tone({ type: 'square', f0: 900, f1: 60, dur: 1.2, vol: .2 }); },
   lose()    { arp([392, 349, 311, 262, 220, 165], .3, 'triangle', .35, .4); },
+  deepScan(){ noise({ dur: 1.1, vol: .35, f0: 200, f1: 5000, type: 'bandpass' }); tone({ type: 'sine', f0: 300, f1: 1800, dur: 1, vol: .18 }); },
 };
 function engineOn() {
   if (!ac || eng) return;
@@ -339,7 +344,7 @@ function newAlien(type, q, pos) {
 function newGame() {
   $('shipInfo').hidden = true;
   for (const k of ANOM_KEYS) ANOM[k].idR = ANOM_BASE_IDR[k];
-  U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0 };
+  U = { Q: [], t: 0, nextId: 1, kills: 0, level: 1, aliensLeft: 0, grace: 0, over: false, dying: false, paused: false, beams: [], proj: [], fx: [], pending: null, jm: null, sd: null, endT: 0, shake: 0, collWarnT: 0, deepScanCd: 0 };
   for (let y = 0; y < GN; y++) { U.Q[y] = []; for (let x = 0; x < GN; x++) U.Q[y][x] = { stars: [], planets: [], aliens: [], mines: [], stations: [], debris: [], remnants: [], pendingRemnants: [], anom: null, visited: false, hue: ri(360) }; }
   H = { qx: ri(GN), qy: ri(GN), x: 6, y: 6, dir: 6, moving: false, remaining: 0, total: 0, cost: 0, stepT: 0, shields: 100, hull: 100, energy: MAXE, torps: 10, mines: 6, torpsMax: 10, minesMax: 6, pods: 4, podsMax: 4, novasMax: 2, hullArmor: 1, shieldArmor: 1, energyRegenRate: 3, jump: null, flash: 0, regenT: 0, crippled: 0, docking: null, collision: null, disrUnlocked: false, novaUnlocked: false, novas: 0, dist: +$('dist').value, holeOff: { x: 0, y: 0 }, holeBendN: 0, holeSpin: 0, holeLockout: false, holeAlong: false, holeCap: 1, holeBoost: 0, holeExited: false, holePeak: 0, holeExitRemain: 1, px: 6, py: 6 };
   for (let y = 0; y < GN; y++) for (let x = 0; x < GN; x++) {
@@ -1099,6 +1104,9 @@ function update(dt) {
   // the shipyard's upgrade cooldown only counts down while the hero is away from its quadrant - sitting right next to it,
   // or coming back before time's up, freezes the countdown rather than resetting or ignoring it.
   if (U.shipyard && U.shipyard.cdRemain > 0 && (H.qx !== U.shipyard.qx || H.qy !== U.shipyard.qy)) U.shipyard.cdRemain = Math.max(0, U.shipyard.cdRemain - dt);
+  // deep space scan recovery: counts down only while energy is at or above DS_STALL_BELOW, otherwise it freezes in place (not reset)
+  if (U.deepScanCd > 0 && H.energy >= DS_STALL_BELOW) U.deepScanCd = Math.max(0, U.deepScanCd - dt);
+  if (U.deepScanFlashQ) { for (const fq of U.deepScanFlashQ) fq.dsFlashT = Math.max(0, (fq.dsFlashT || 0) - dt); if (!U.deepScanFlashQ.some(fq => fq.dsFlashT > 0)) U.deepScanFlashQ = null; }
   // anomaly identification
   const an = curQ().anom; if (an && !an.known && cheb(H.x, H.y, an.x, an.y) <= anIdR(an)) { an.known = true; sfx.ping(); say(`SHORT RANGE SENSORS IDENTIFY: ${ANOM[an.type].name}.`, 'warn'); }
   updateAnomaly(q, dt); updateStations(q, dt); updateRemnants(q, dt);
@@ -1826,6 +1834,10 @@ function drawSR(t) {
   }
   for (const f of U.fx) { const k = f.t / f.dur, x = cx(f.x), y = cx(f.y);
     if (f.kind === 'wave') { c.strokeStyle = `rgba(255,213,77,${1 - k * .7})`; c.lineWidth = 4; c.beginPath(); c.arc(x, y, k * f.size * CELL, 0, 6.3); c.stroke(); c.strokeStyle = `rgba(255,120,60,${.7 - k * .6})`; c.lineWidth = 9; c.beginPath(); c.arc(x, y, k * f.size * CELL * .96, 0, 6.3); c.stroke(); continue; }
+    if (f.kind === 'scan') {   // deep space scan: a cyan ping sweeping out from the ship to the edge of the visible view
+      const r = k * SW * .75; c.strokeStyle = `rgba(79,216,255,${(1 - k) * .9})`; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r, 0, 6.3); c.stroke();
+      c.strokeStyle = `rgba(79,216,255,${(1 - k) * .3})`; c.lineWidth = 16; c.beginPath(); c.arc(x, y, r * .92, 0, 6.3); c.stroke(); continue;
+    }
     const r = (f.kind === 'big' ? 20 + k * 80 : f.kind === 'jump' ? 10 + k * 50 : 6 + k * 26) * f.size;
     c.globalAlpha = 1 - k; c.fillStyle = f.kind === 'jump' ? '#c08bff' : k < .3 ? '#fff' : '#ffb347'; if (f.kind !== 'spark') { c.beginPath(); c.arc(x, y, r * .5, 0, 6.3); c.fill(); }
     c.strokeStyle = f.kind === 'jump' ? '#e0c0ff' : '#ff6a3a'; c.lineWidth = 3; c.beginPath(); c.arc(x, y, r, 0, 6.3); c.stroke(); c.globalAlpha = 1; }
@@ -1899,6 +1911,36 @@ function updateScannerGlitch(dt) {
     if (rnd() < oddsPerSec) q.flickerT = .35 + rnd() * .25;
   }
 }
+// DEEP SPACE SCAN (S): a one-off burst that snapshots the ring of quadrants two steps out (the normal long range scanner only ever
+// covers one step, continuously). Costs a flat 800 energy and needs shields at 80% or more to fire - both checked up front, no
+// partial scans. Afterward a 120 second recovery timer runs, but only while energy stays at or above DS_STALL_BELOW; drop under that
+// and the timer freezes (not resets) until energy climbs back, exactly like the shipyard's leave-quadrant cooldown pause.
+function deepScan() {
+  if (!U || U.over) return;
+  if (H.crippled > 0) return say('SYSTEMS OFFLINE - THE SHIP IS CRIPPLED!', 'bad');
+  if (U.deepScanCd > 0) { const stalled = H.energy < DS_STALL_BELOW; return say(stalled ? `DEEP SCAN RECOVERING - STALLED, NEEDS ${DS_STALL_BELOW} ENERGY (${Math.ceil(U.deepScanCd)}s LEFT).` : `DEEP SCAN RECOVERING (${Math.ceil(U.deepScanCd)}s).`, 'warn'); }
+  if (H.shields < DS_MIN_SHIELD) return say(`DEEP SCAN NEEDS SHIELDS AT ${DS_MIN_SHIELD}% OR MORE.`, 'warn');
+  if (H.energy < DS_COST) return say(`INSUFFICIENT ENERGY FOR A DEEP SCAN (NEEDS ${DS_COST}).`, 'bad');
+  U.pending = null; H.energy -= DS_COST; U.deepScanCd = DS_RECOVERY;
+  const flashed = [];
+  for (let dy = -DS_RING; dy <= DS_RING; dy++) for (let dx = -DS_RING; dx <= DS_RING; dx++) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) !== DS_RING) continue;   // only the new outer ring - the inner one is already live every frame
+    const x = H.qx + dx, y = H.qy + dy; if (x < 0 || y < 0 || x >= GN || y >= GN) continue;
+    const rq = Q(x, y), i = qInfo(rq);
+    if (i) rq.mem = { al: i.al, st: i.st, pl: i.pl, sn: i.sn, sy: i.sy, an: i.an ? i.an.type : null };
+    else if (rq.anom && !rq.anom.known) rq.mem = { jammed: true };
+    rq.dsFlashT = 1.2; flashed.push(rq);
+  }
+  U.deepScanFlashQ = flashed;
+  fx(H.x, H.y, 'scan', 1.1, 1); sfx.deepScan();
+  say(`DEEP SPACE SCAN COMPLETE - AN ADDITIONAL RING OF QUADRANTS REVEALED. ENERGY -${DS_COST}.`, 'good');
+}
+// Shared by the HUD row and the ship status card, so the two can never drift out of sync.
+function deepScanStatus() {
+  if (U.deepScanCd <= 0) return ['DEEP SCAN: READY', '#33ff66'];
+  if (H.energy < DS_STALL_BELOW) return [`DEEP SCAN: STALLED - NEEDS ${DS_STALL_BELOW} ENERGY (${Math.ceil(U.deepScanCd)}s LEFT)`, '#ff4d5e'];
+  return [`DEEP SCAN: RECOVERING (${Math.ceil(U.deepScanCd)}s)`, '#ffc447'];
+}
 function qInfo(q) {
   if (q.anom && !q.anom.known) return null;
   const seen = a => !(ATYPES[a.type].cloak && a.cloaked) && !(inNebula(q, a.x, a.y) && !(q === curQ() && cheb(a.x, a.y, H.x, H.y) <= 2));
@@ -1913,6 +1955,10 @@ function drawLR(t) {
     else if (q.mem) { if (q.mem.jammed) jammed = true; else { info = { al: q.mem.al, st: q.mem.st, pl: q.mem.pl, sn: q.mem.sn, sy: q.mem.sy, an: q.mem.an ? { type: q.mem.an } : null }; dim = true; } }
     g.fillStyle = here ? 'rgba(79,216,255,.16)' : q.visited ? 'rgba(40,70,120,.22)' : 'rgba(20,30,60,.25)'; g.fillRect(px + 1, py + 1, GC - 2, GC - 2);
     g.strokeStyle = 'rgba(79,216,255,.18)'; g.strokeRect(px + .5, py + .5, GC - 1, GC - 1);
+    if (q.dsFlashT > 0) {   // deep space scan: a fading cyan pulse on each quadrant the scan just revealed
+      const fk = q.dsFlashT / 1.2; g.fillStyle = `rgba(79,216,255,${fk * .5})`; g.fillRect(px + 1, py + 1, GC - 2, GC - 2);
+      g.strokeStyle = `rgba(150,235,255,${fk})`; g.lineWidth = 2; g.strokeRect(px + 1.5, py + 1.5, GC - 3, GC - 3); g.lineWidth = 1;
+    }
     g.font = '7px "Courier New"'; g.fillStyle = 'rgba(160,190,230,.45)'; g.textAlign = 'left'; g.fillText(`${x + 1},${y + 1}`, px + 3, py + 8);
     g.textAlign = 'left';
     if (!info) {   // jammed live, or remembered as jammed from an earlier visit (dimmed either way it's shown)
@@ -1960,6 +2006,8 @@ function updateHUD() {
   hudWidth('bE', H.energy / MAXE * 100 + '%'); hudText('tE', Math.round(H.energy));
   hudText('sTorp', H.torps); hudText('sMine', H.mines); hudText('sPod', H.pods); hudText('sAl', U.aliensLeft); hudText('sPos', `${H.qx + 1},${H.qy + 1} / ${H.x + 1},${H.y + 1}`);
   hudText('sLvl', U.level); hudText('sNova', H.novas);
+  { const [dsTxt, dsCol] = deepScanStatus();
+    hudSet('dsRow', dsTxt, s => { const el = $('dsRow'); el.textContent = s; el.style.color = dsCol; el.style.borderColor = dsCol; }); }
   $('cDisr').classList.toggle('unlocked', H.disrUnlocked); hudSet('cDisrL', H.disrUnlocked ? 'X' : `LV.${LEVELS.find(l => l.unlock === 'disr').n}`, s => { $('cDisr').lastElementChild.textContent = s; });
   $('cNova').classList.toggle('unlocked', H.novaUnlocked); hudSet('cNovaL', H.novaUnlocked ? 'V' : `LV.${LEVELS.find(l => l.unlock === 'nova').n}`, s => { $('cNova').lastElementChild.textContent = s; });
   let p = '';
@@ -1974,7 +2022,7 @@ function updateHUD() {
   else if (U.pending && U.pending.stage === 'layPattern') p = `LAY MINEFIELD (${U.pending.count}): PRESS S (STRAIGHT BEHIND), L (BACK-LEFT DIAGONAL), R (BACK-RIGHT DIAGONAL) OR A (ARC).`;
   else if (U.pending) p = { phaser: 'PHASER: PRESS A DIRECTION (NUMPAD 1-9)', torp: 'TORPEDO: PRESS A DIRECTION (NUMPAD 1-9)', mine: 'ANTIMATTER POD: PRESS A DIRECTION (NUMPAD 1-9)', disr: 'DISRUPTOR: PRESS A DIRECTION - PIERCES EVERY SHIP IN ITS PATH (NUMPAD 1-9)', nova: `NOVA TORPEDO: PRESS A DIRECTION - ANNIHILATES EVERYTHING FOR 2 SECTORS ON IMPACT (NUMPAD 1-9)`, move: `ION DRIVE (${H.dist} SECTORS, ENERGY ${driveCost(H.dist)}): PRESS A DIRECTION` }[U.pending.cmd];
   else if (H.collision) p = `⚠ COLLISION ALARM: ${COLL_LABEL[H.collision.t] || 'AN OBSTACLE'} ${H.collision.d} SECTOR${H.collision.d > 1 ? 'S' : ''} AHEAD! CHANGE COURSE (NUMPAD) OR STOP (S).`;
-  else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, S, 0 OR 5 STOPS.`;
+  else if (H.moving) p = `MOVING ${dirName(H.dir)} — ${H.remaining} SECTORS LEFT. NUMPAD CHANGES COURSE, 0 OR 5 STOPS.`;
   else p = 'READY.';
   hudText('prompt', p);
   hudText('distv', H.dist); hudText('distc', 'ENERGY COST ' + driveCost(H.dist));
@@ -2005,20 +2053,21 @@ const INTRO_HTML = `
 </ol></div>
 <div><span class="dim">DIRECTIONS (numpad or top row)</span><br>${PAD}</div></div>
 <h3>KEYS</h3>
-<div class="keys"><span><kbd>A</kbd> Antimatter pod</span><span><kbd>M</kbd> Lay minefield</span><span><kbd>J</kbd> Hyperjump</span><span><kbd>K</kbd> Self-destruct</span><span><kbd>R</kbd> Enlarge scanner</span><span><kbd>G</kbd> Anomaly guide</span><span><kbd>C</kbd> Contacts</span><span><kbd>H</kbd> Help</span><span><kbd>F</kbd> Save game</span><span><kbd>O</kbd> Load game</span><span><kbd>Space</kbd> Pause</span></div>
+<div class="keys"><span><kbd>A</kbd> Antimatter pod</span><span><kbd>M</kbd> Lay minefield</span><span><kbd>J</kbd> Hyperjump</span><span><kbd>K</kbd> Self-destruct</span><span><kbd>S</kbd> Deep space scan</span><span><kbd>R</kbd> Enlarge scanner</span><span><kbd>G</kbd> Anomaly guide</span><span><kbd>C</kbd> Contacts</span><span><kbd>H</kbd> Help</span><span><kbd>F</kbd> Save game</span><span><kbd>O</kbd> Load game</span><span><kbd>Space</kbd> Pause</span></div>
 <p class="foot">Press <kbd>H</kbd> at any time for the full guide.</p>`;
 const HELP_HTML = `
 <details open><summary>THE BASICS</summary><div>
 <p><b>Goal:</b> destroy every alien ship in the 8x8 galaxy of quadrants. Each quadrant is 32x32 sectors; the main screen shows a 16x16 window that follows your ship.</p>
 <p><b>Short range scanner</b> (inset, top right): the whole quadrant, with a white box for what you can see. <kbd>R</kbd> enlarges it.</p>
 <p><b>Long range scanner</b> (galaxy map): reads your quadrant and the 8 around it live; quadrants further away show your last scan, dimmed. <b>???</b> means an anomaly is jamming it &mdash; fly close to identify it.</p>
+<p><b>Deep space scan</b> <kbd>S</kbd>: a one-off burst that snapshots the ring of 16 quadrants two steps out, well beyond the long range scanner's normal reach. Costs 800 energy and needs shields at 80% or more to fire. Afterward it needs 120 seconds to recover, which only counts down while your energy stays at 400 or above - drop below that and the timer freezes until it recovers. Available from the start; its status shows on the panel below the shield, hull and energy bars.</p>
 <p><b>Field guide</b> <kbd>G</kbd> shows every anomaly and what it does. <b>Contacts</b> <kbd>C</kbd> logs the stations, anomalies and aliens the scanner has found.</p>
 <p>Click your ship for a status and upgrades card.</p>
 <p><b>Save and load:</b> <kbd>F</kbd> saves the current game to a file, space-force-save.json, in your downloads. <kbd>O</kbd> (or LOAD SAVED GAME on the opening screen) lets you pick that file to load it, replacing the game in progress. It's a file, so it survives closing the browser or using a private window. You can only save while the board is still: ship stopped, no weapons in flight, and not mid-jump or mid-dock. Aliens are saved wherever they are.</p>
 </div></details>
 <details><summary>FLYING</summary><div>
 <p>Directions: ${PAD}</p>
-<p><b>Ion drive:</b> set the distance (<kbd>+</kbd> <kbd>-</kbd>, arrow keys or the slider), press <kbd>I</kbd>, then a direction. Longer trips cost more energy; if you can't afford the full distance you still go as far as your energy allows (at least 1 sector). The ship speeds up to the halfway point, then slows down. While moving, a direction changes course; <kbd class="stop">S</kbd>, <kbd class="stop">0</kbd> or <kbd class="stop">5</kbd> stops and refunds unused energy.</p>
+<p><b>Ion drive:</b> set the distance (<kbd>+</kbd> <kbd>-</kbd>, arrow keys or the slider), press <kbd>I</kbd>, then a direction. Longer trips cost more energy; if you can't afford the full distance you still go as far as your energy allows (at least 1 sector). The ship speeds up to the halfway point, then slows down. While moving, a direction changes course; <kbd class="stop">0</kbd> or <kbd class="stop">5</kbd> stops and refunds unused energy.</p>
 <p><b>Hyperjump:</b> <kbd>J</kbd> and a number 1-9 (0 = 10) jumps that many sectors in a random direction after a 2 second spool-up, possibly into another quadrant. It costs more the further you go.</p>
 <p><b>Collisions:</b> a COLLISION ALARM sounds when something is dead ahead. Ramming a star, planet, asteroid, station or the nest destroys your ship. Ramming an alien hurts both ships equally, and can destroy a weak alien outright.</p>
 </div></details>
@@ -2314,7 +2363,8 @@ addEventListener('keydown', e => {
     case 'KeyR': U.scanBig = !U.scanBig; sfx.click(); break;
     case 'KeyD': cmd('dock'); break;
     case 'KeyJ': cmd('jump'); break; case 'KeyK': cmd('sd'); break;
-    case 'KeyS': case 'Digit0': case 'Numpad0': case 'Digit5': case 'Numpad5': cmd('stop'); break;
+    case 'Digit0': case 'Numpad0': case 'Digit5': case 'Numpad5': cmd('stop'); break;
+    case 'KeyS': deepScan(); break;
     case 'KeyH': cmd('help'); break;
     case 'KeyF': saveGame(); break; case 'KeyO': askLoad(); break;
     case 'KeyG': cmd('guide'); break; case 'KeyC': cmd('contacts'); break;
@@ -2331,6 +2381,7 @@ $('dist').oninput = e => { H.dist = +e.target.value; };
 for (const b of document.querySelectorAll('#compass [data-d]')) b.onclick = () => { initAudio(); heroDir(+b.dataset.d); };
 $('cStop').onclick = () => { initAudio(); if (U.sd) { U.sd = null; say('SELF-DESTRUCT CANCELLED.', 'good'); } else cmd('stop'); };
 for (const [id, n] of [['cMove', 'move'], ['cPhaser', 'phaser'], ['cTorp', 'torp'], ['cMine', 'mine'], ['cMineLay', 'minelay'], ['cMineSD', 'minesd'], ['cDisr', 'disr'], ['cNova', 'nova'], ['cJump', 'jump'], ['cSD', 'sd'], ['cDock', 'dock'], ['cGuide', 'guide'], ['cPause', 'pause'], ['cHelp', 'help'], ['cContacts', 'contacts']]) $(id).onclick = () => { initAudio(); cmd(n); };
+$('cDeepScan').onclick = () => { initAudio(); deepScan(); };
 $('cSave').onclick = () => { initAudio(); saveGame(); };
 $('cLoad').onclick = () => { initAudio(); askLoad(); };
 $('ovLoad').onclick = () => { initAudio(); askLoad(); };
@@ -2360,6 +2411,7 @@ function renderShipInfo() {
     row('SHIELDS', Math.round(H.shields) + '%') + row('HULL', Math.round(H.hull) + '%') + row('ENERGY', Math.round(H.energy)) +
     row('TORPEDOES', `${H.torps}/${H.torpsMax}`) + row('MINES', `${H.mines}/${H.minesMax}`) + row('PODS', `${H.pods}/${H.podsMax}`) + (H.novaUnlocked ? row('NOVAS', `${H.novas}/${H.novasMax}`) : '') + row('ENERGY REGEN', H.energyRegenRate + '/s') +
     (H.crippled > 0 ? '<div class="bad">CRIPPLED - SHIELDS OFFLINE</div>' : '') + (H.docking ? '<div class="u">DOCKED</div>' : '') +
+    (() => { const [t, col] = deepScanStatus(); return `<div style="color:${col};margin-top:4px">${t}</div>`; })() +
     `<h4 style="margin-top:8px">UPGRADES</h4>` + (ups.length ? ups.map(u => `<div class="u">${u}</div>`).join('') : '<div class="n">NONE YET - FIND THE SHIPYARD</div>') +
     (sy ? `<div class="n" style="margin-top:4px">${sy.pool.length ? `SHIPYARD: ${8 - sy.pool.length}/8 EARNED` + (sy.cdRemain > 0 ? `, NEXT IN ${Math.ceil(sy.cdRemain)}s AWAY` : '') : 'SHIPYARD: ALL 8 EARNED'}</div>` : '<div class="n" style="margin-top:4px">SHIPYARD DESTROYED</div>');
   if (html !== el.dataset.html) { el.dataset.html = html; el.innerHTML = html; }   // it's refreshed every frame while open - only rebuild when something changed
